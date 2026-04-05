@@ -4,7 +4,10 @@ use tauri::Manager;
 mod db;
 mod commands;
 
-pub struct DbState(pub Mutex<rusqlite::Connection>);
+pub struct DbState {
+    pub conn: Mutex<rusqlite::Connection>,
+    pub db_path: String,
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -23,10 +26,16 @@ pub fn run() {
                 .app_data_dir()
                 .expect("failed to get app data dir");
 
+            let db_path = app_data_dir.join("bookkeeping.db");
+            let db_path_str = db_path.to_string_lossy().to_string();
+
             let conn = db::init_db(app_data_dir)
                 .expect("failed to initialize database");
 
-            app.manage(DbState(Mutex::new(conn)));
+            app.manage(DbState {
+                conn: Mutex::new(conn),
+                db_path: db_path_str,
+            });
 
             Ok(())
         })
@@ -41,6 +50,8 @@ pub fn run() {
             commands::update_journal_entry,
             commands::lock_period,
             commands::check_period_locked,
+            commands::get_app_metadata,
+            commands::get_dashboard_summary,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -12,6 +12,9 @@ import type {
   BalanceSheetResult,
   AccountBalanceRow,
   AccountBalanceItem,
+  AppMetadata,
+  DashboardSummary,
+  TransactionWithEntries,
 } from '../../lib/api'
 
 interface StoredTransaction {
@@ -257,6 +260,44 @@ export class MockApi {
       total_equity,
       is_balanced: total_assets === total_liabilities + total_equity,
       as_of_date: asOfDate,
+    }
+  }
+
+  getAppMetadata(): AppMetadata {
+    return {
+      version: '0.1.0',
+      db_path: ':memory:',
+      last_backup_date: null,
+    }
+  }
+
+  getDashboardSummary(): DashboardSummary {
+    const bs = this.getBalanceSheet('9999-12-31')
+    const is = this.getIncomeStatement('0000-01-01', '9999-12-31')
+
+    const recentTxs: TransactionWithEntries[] = this.transactions
+      .slice()
+      .sort((a, b) => b.date.localeCompare(a.date) || b.created_at - a.created_at)
+      .slice(0, 10)
+      .map((tx) => ({
+        ...tx,
+        entries: this.entries
+          .filter((e) => e.transaction_id === tx.id)
+          .map((e) => ({
+            ...e,
+            memo: e.memo,
+          })),
+      }))
+
+    return {
+      total_assets: bs.total_assets,
+      total_liabilities: bs.total_liabilities,
+      total_equity: bs.total_equity,
+      total_revenue: is.total_revenue,
+      total_expenses: is.total_expenses,
+      net_income: is.net_income,
+      transaction_count: this.transactions.length,
+      recent_transactions: recentTxs,
     }
   }
 }

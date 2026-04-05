@@ -110,7 +110,7 @@ fn is_debit_normal(acct_type: &str) -> bool {
 
 #[tauri::command]
 pub async fn get_accounts(db: State<'_, DbState>) -> Result<Vec<Account>, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare("SELECT id, code, name, type, normal_balance, parent_id, is_active, created_at FROM accounts WHERE is_active = 1 ORDER BY code")
         .map_err(|e| e.to_string())?;
@@ -159,7 +159,7 @@ pub async fn create_transaction(
         return Err("Transaction must have non-zero amounts".to_string());
     }
 
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let tx_id = Uuid::new_v4().to_string();
     let now = Utc::now().timestamp();
 
@@ -199,7 +199,7 @@ pub async fn get_account_balance(
     account_id: String,
     as_of_date: Option<String>,
 ) -> Result<i64, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
 
     let acct_type: String = conn
         .query_row("SELECT type FROM accounts WHERE id = ?1", params![account_id], |row| row.get(0))
@@ -237,7 +237,7 @@ pub async fn get_trial_balance(
     db: State<'_, DbState>,
     as_of_date: Option<String>,
 ) -> Result<TrialBalanceResult, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
 
     let query = match &as_of_date {
         Some(date) => format!(
@@ -315,7 +315,7 @@ pub async fn get_income_statement(
     start_date: String,
     end_date: String,
 ) -> Result<IncomeStatementResult, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
 
     let mut stmt = conn.prepare(
         "SELECT a.id, a.code, a.name, a.type,
@@ -372,7 +372,7 @@ pub async fn get_balance_sheet(
     db: State<'_, DbState>,
     as_of_date: String,
 ) -> Result<BalanceSheetResult, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
 
     let mut stmt = conn.prepare(
         "SELECT a.id, a.code, a.name, a.type,
@@ -438,7 +438,7 @@ pub async fn get_transactions(
     start_date: Option<String>,
     end_date: Option<String>,
 ) -> Result<Vec<TransactionWithEntries>, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
 
     let mut where_clauses = Vec::new();
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -516,7 +516,7 @@ pub async fn update_journal_entry(
     field: String,
     new_value: String,
 ) -> Result<(), String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
 
     // Check if period is locked for this entry
     let (account_id, tx_date): (String, String) = conn.query_row(
@@ -571,7 +571,7 @@ pub async fn lock_period(
     period_start: String,
     period_end: String,
 ) -> Result<(), String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().timestamp();
     conn.execute(
@@ -587,11 +587,137 @@ pub async fn check_period_locked(
     account_id: String,
     date: String,
 ) -> Result<bool, String> {
-    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
     let locked: bool = conn.query_row(
         "SELECT COUNT(*) > 0 FROM reconciliation_periods WHERE account_id = ?1 AND period_start <= ?2 AND period_end >= ?2 AND is_locked = 1",
         params![account_id, date],
         |row| row.get(0),
     ).map_err(|e| e.to_string())?;
     Ok(locked)
+}
+
+// ── Phase 9: App Shell & Navigation ──────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct AppMetadata {
+    pub version: String,
+    pub db_path: String,
+    pub last_backup_date: Option<String>,
+}
+
+#[tauri::command]
+pub async fn get_app_metadata(db: State<'_, DbState>) -> Result<AppMetadata, String> {
+    Ok(AppMetadata {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        db_path: db.db_path.clone(),
+        last_backup_date: None, // Will be populated when backup feature is added
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct DashboardSummary {
+    pub total_assets: i64,
+    pub total_liabilities: i64,
+    pub total_equity: i64,
+    pub total_revenue: i64,
+    pub total_expenses: i64,
+    pub net_income: i64,
+    pub transaction_count: i64,
+    pub recent_transactions: Vec<TransactionWithEntries>,
+}
+
+#[tauri::command]
+pub async fn get_dashboard_summary(db: State<'_, DbState>) -> Result<DashboardSummary, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    let mut totals_stmt = conn.prepare(
+        "SELECT a.type,
+                COALESCE(SUM(je.debit), 0) AS total_debit,
+                COALESCE(SUM(je.credit), 0) AS total_credit
+         FROM accounts a
+         LEFT JOIN journal_entries je ON je.account_id = a.id
+         WHERE a.is_active = 1
+         GROUP BY a.type"
+    ).map_err(|e| e.to_string())?;
+
+    let mut total_assets: i64 = 0;
+    let mut total_liabilities: i64 = 0;
+    let mut total_equity: i64 = 0;
+    let mut total_revenue: i64 = 0;
+    let mut total_expenses: i64 = 0;
+
+    let rows = totals_stmt.query_map([], |row| {
+        let acct_type: String = row.get(0)?;
+        let td: i64 = row.get(1)?;
+        let tc: i64 = row.get(2)?;
+        Ok((acct_type, td, tc))
+    }).map_err(|e| e.to_string())?;
+
+    for row in rows {
+        let (acct_type, td, tc) = row.map_err(|e| e.to_string())?;
+        match acct_type.as_str() {
+            "ASSET" => total_assets += td - tc,
+            "LIABILITY" => total_liabilities += tc - td,
+            "EQUITY" => total_equity += tc - td,
+            "REVENUE" => total_revenue += tc - td,
+            "EXPENSE" => total_expenses += td - tc,
+            _ => {}
+        }
+    }
+
+    let net_income = total_revenue - total_expenses;
+
+    let transaction_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM transactions", [], |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    // Recent 10 transactions
+    let mut tx_stmt = conn.prepare(
+        "SELECT id, date, description, reference, is_locked, created_at FROM transactions ORDER BY date DESC, created_at DESC LIMIT 10"
+    ).map_err(|e| e.to_string())?;
+
+    let tx_rows = tx_stmt.query_map([], |row| {
+        Ok(TransactionWithEntries {
+            id: row.get(0)?,
+            date: row.get(1)?,
+            description: row.get(2)?,
+            reference: row.get(3)?,
+            is_locked: row.get(4)?,
+            created_at: row.get(5)?,
+            entries: Vec::new(),
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut recent_transactions = Vec::new();
+    for tx in tx_rows {
+        let mut t = tx.map_err(|e| e.to_string())?;
+        let mut entry_stmt = conn.prepare(
+            "SELECT id, transaction_id, account_id, debit, credit, memo FROM journal_entries WHERE transaction_id = ?1"
+        ).map_err(|e| e.to_string())?;
+        let entries = entry_stmt.query_map(params![t.id], |row| {
+            Ok(JournalEntryOutput {
+                id: row.get(0)?,
+                transaction_id: row.get(1)?,
+                account_id: row.get(2)?,
+                debit: row.get(3)?,
+                credit: row.get(4)?,
+                memo: row.get(5)?,
+            })
+        }).map_err(|e| e.to_string())?;
+        for entry in entries {
+            t.entries.push(entry.map_err(|e| e.to_string())?);
+        }
+        recent_transactions.push(t);
+    }
+
+    Ok(DashboardSummary {
+        total_assets,
+        total_liabilities,
+        total_equity: total_equity + net_income,
+        total_revenue,
+        total_expenses,
+        net_income,
+        transaction_count,
+        recent_transactions,
+    })
 }

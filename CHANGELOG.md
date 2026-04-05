@@ -1,8 +1,20 @@
 # Bookkeeping App — Changelog
 
-## STATUS: ALL PHASES COMPLETE + ARCHITECTURE MIGRATION DONE
+## STATUS: Phase 9 Complete — working on Phase 10
 
 ## COMPLETED
+
+### Phase 9 — App Shell & Navigation (2026-04-05)
+- Added `get_app_metadata` Rust command (version, db path, last backup date)
+- Added `get_dashboard_summary` Rust command (totals for all 5 account types + net income + recent 10 txs)
+- Both commands added to api.ts + MockApi with full type coverage
+- Created `AppShell.tsx` — fixed left sidebar with sections: Overview, Transactions, Accounts, Reports, Settings
+- Active page highlighted with left border accent; sidebar collapses to short labels via toggle button
+- Created `Dashboard.tsx` — summary cards (assets, liabilities, equity, net income, revenue, expenses, tx count) + recent transactions table
+- Replaced tab navigation in App.tsx with AppShell layout
+- Updated `DbState` struct to store db_path alongside connection
+- 4 new tests: metadata, dashboard totals, totals-match-reports, empty-dashboard
+- 24 total tests pass, typecheck clean
 
 ### Architecture Migration: Dexie/IndexedDB → Tauri + rusqlite (2026-04-05)
 **Why:** Dexie/IndexedDB is browser-only ephemeral storage. A desktop bookkeeping app

@@ -89,6 +89,23 @@ export interface TransactionFilters {
   end_date?: string
 }
 
+export interface AppMetadata {
+  version: string
+  db_path: string
+  last_backup_date: string | null
+}
+
+export interface DashboardSummary {
+  total_assets: number
+  total_liabilities: number
+  total_equity: number
+  total_revenue: number
+  total_expenses: number
+  net_income: number
+  transaction_count: number
+  recent_transactions: TransactionWithEntries[]
+}
+
 // ── API — the ONLY place invoke() is called ──────────────
 
 export const api = {
@@ -155,4 +172,10 @@ export const api = {
       accountId,
       date,
     }),
+
+  getAppMetadata: () =>
+    invoke<AppMetadata>('get_app_metadata'),
+
+  getDashboardSummary: () =>
+    invoke<DashboardSummary>('get_dashboard_summary'),
 }

@@ -81,16 +81,16 @@
 ---
 
 ## PHASE 9 — App Shell & Navigation
-- [ ] Add `get_app_metadata` Rust command (version, db path, last backup date)
-- [ ] Add `get_dashboard_summary` Rust command (totals for assets, liabilities, equity, revenue, expenses, net income)
-- [ ] Add both commands to api.ts + MockApi
-- [ ] Create `AppShell.tsx` — fixed left sidebar + main content area
-- [ ] Sidebar sections: Transactions (Journal Entry, Register), Accounts, Reports (TB, IS, BS), Settings
-- [ ] Active page highlighted in sidebar
-- [ ] Create `Dashboard.tsx` — summary cards + last 10 transactions
-- [ ] Sidebar collapses to icons on narrow windows
-- [ ] Test: get_dashboard_summary returns correct totals
-- [ ] Test: summary totals match individual report calculations
+- [x] Add `get_app_metadata` Rust command (version, db path, last backup date)
+- [x] Add `get_dashboard_summary` Rust command (totals for assets, liabilities, equity, revenue, expenses, net income)
+- [x] Add both commands to api.ts + MockApi
+- [x] Create `AppShell.tsx` — fixed left sidebar + main content area
+- [x] Sidebar sections: Transactions (Journal Entry, Register), Accounts, Reports (TB, IS, BS), Settings
+- [x] Active page highlighted in sidebar
+- [x] Create `Dashboard.tsx` — summary cards + last 10 transactions
+- [x] Sidebar collapses to icons on narrow windows
+- [x] Test: get_dashboard_summary returns correct totals
+- [x] Test: summary totals match individual report calculations
 - [ ] CHECK: App opens with sidebar, dashboard shows data, all tests pass, `npm run check` clean
 
 ## PHASE 10 — Account Management (CRUD)
@@ -228,8 +228,8 @@
 
 ---
 
-## CURRENT PHASE: 9
-## LAST COMPLETED CHECK: Phase 8 — rusqlite migration, 19 tests pass (2026-04-05)
+## CURRENT PHASE: 10
+## LAST COMPLETED CHECK: Phase 9 — app shell + dashboard, 24 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (scoped, not scheduled)
