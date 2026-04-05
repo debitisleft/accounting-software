@@ -79,6 +79,41 @@ describe('accounting engine', () => {
     expect(mock.getAccountBalance(ap.id)).toBe(25000)
   })
 
+  it('abnormal asset balance shows in credit column', () => {
+    const savings = findAccount('1020') // ASSET - Savings Account
+    const cash = findAccount('1000')    // ASSET - Cash
+
+    // Credit Savings more than we debit it → negative (abnormal) balance
+    mock.createTransaction({
+      date: '2026-01-01',
+      description: 'Deposit cash',
+      entries: [
+        { account_id: savings.id, debit: 10000, credit: 0 },
+        { account_id: cash.id, debit: 0, credit: 10000 },
+      ],
+    })
+    mock.createTransaction({
+      date: '2026-01-05',
+      description: 'Overdraft savings',
+      entries: [
+        { account_id: cash.id, debit: 30000, credit: 0 },
+        { account_id: savings.id, debit: 0, credit: 30000 },
+      ],
+    })
+
+    // Savings: debit 10000, credit 30000 → net = -20000 (abnormal for ASSET)
+    expect(mock.getAccountBalance(savings.id)).toBe(-20000)
+
+    const tb = mock.getTrialBalance()
+    const savingsRow = tb.rows.find((r) => r.code === '1020')!
+    // Abnormal asset balance should appear in CREDIT column
+    expect(savingsRow.debit).toBe(0)
+    expect(savingsRow.credit).toBe(20000)
+
+    // Trial balance must still balance
+    expect(tb.is_balanced).toBe(true)
+  })
+
   it('trial balance debits === trial balance credits', () => {
     const cash = findAccount('1000')
     const revenue = findAccount('4000')

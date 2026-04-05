@@ -272,13 +272,20 @@ pub async fn get_trial_balance(
             } else {
                 total_credit - total_debit
             };
+            // Column determined by sign: positive net = normal side,
+            // negative net = abnormal side (show abs in opposite column)
+            let (debit, credit) = if net >= 0 {
+                if is_debit_normal(&acct_type) { (net, 0) } else { (0, net) }
+            } else {
+                if is_debit_normal(&acct_type) { (0, -net) } else { (-net, 0) }
+            };
             Ok(AccountBalanceRow {
                 account_id: row.get(0)?,
                 code: row.get(1)?,
                 name: row.get(2)?,
                 acct_type,
-                debit: if is_debit_normal(&row.get::<_, String>(3)?) { net } else { 0 },
-                credit: if !is_debit_normal(&row.get::<_, String>(3)?) { net } else { 0 },
+                debit,
+                credit,
             })
         })
         .map_err(|e| e.to_string())?;

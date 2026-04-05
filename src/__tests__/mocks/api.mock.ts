@@ -148,13 +148,22 @@ export class MockApi {
       const net = isDebitNormal(acct.type) ? totalDebit - totalCredit : totalCredit - totalDebit
 
       if (net !== 0) {
+        // Column determined by sign: positive = normal side, negative = abnormal side
+        let debit: number, credit: number
+        if (net >= 0) {
+          debit = isDebitNormal(acct.type) ? net : 0
+          credit = !isDebitNormal(acct.type) ? net : 0
+        } else {
+          debit = !isDebitNormal(acct.type) ? -net : 0
+          credit = isDebitNormal(acct.type) ? -net : 0
+        }
         rows.push({
           account_id: acct.id,
           code: acct.code,
           name: acct.name,
           type: acct.type,
-          debit: isDebitNormal(acct.type) ? net : 0,
-          credit: !isDebitNormal(acct.type) ? net : 0,
+          debit,
+          credit,
         })
       }
     }
