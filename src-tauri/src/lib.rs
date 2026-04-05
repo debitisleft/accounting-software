@@ -52,6 +52,10 @@ pub fn run() {
             commands::check_period_locked,
             commands::get_app_metadata,
             commands::get_dashboard_summary,
+            commands::create_account,
+            commands::update_account,
+            commands::deactivate_account,
+            commands::reactivate_account,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

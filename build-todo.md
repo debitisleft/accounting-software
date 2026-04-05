@@ -94,22 +94,22 @@
 - [ ] CHECK: App opens with sidebar, dashboard shows data, all tests pass, `npm run check` clean
 
 ## PHASE 10 — Account Management (CRUD)
-- [ ] Add `is_active` column to accounts table (ALTER TABLE, default true)
-- [ ] Add `create_account` Rust command (name, number, type, optional parent_id) with validation
-- [ ] Add `update_account` Rust command (id, new name, new number — cannot change type)
-- [ ] Add `deactivate_account` Rust command (rejects if balance ≠ 0)
-- [ ] Add `reactivate_account` Rust command
-- [ ] Add all 4 commands to api.ts + MockApi
-- [ ] Update AccountsListPage: "Add Account" button, edit icon per row, deactivate toggle
-- [ ] Deactivated accounts in collapsed "Inactive" section
-- [ ] Account dropdowns filter to active only
-- [ ] Test: create account with valid data succeeds
-- [ ] Test: create account with duplicate number fails
-- [ ] Test: deactivate with zero balance succeeds
-- [ ] Test: deactivate with non-zero balance fails
-- [ ] Test: cannot change account type after creation
-- [ ] Test: deactivated accounts excluded from active queries
-- [ ] CHECK: Can add, rename, deactivate accounts via UI, all tests pass, `npm run check` clean
+- [x] Add `is_active` column to accounts table (ALTER TABLE, default true)
+- [x] Add `create_account` Rust command (name, number, type, optional parent_id) with validation
+- [x] Add `update_account` Rust command (id, new name, new number — cannot change type)
+- [x] Add `deactivate_account` Rust command (rejects if balance ≠ 0)
+- [x] Add `reactivate_account` Rust command
+- [x] Add all 4 commands to api.ts + MockApi
+- [x] Update AccountsListPage: "Add Account" button, edit icon per row, deactivate toggle
+- [x] Deactivated accounts in collapsed "Inactive" section
+- [x] Account dropdowns filter to active only
+- [x] Test: create account with valid data succeeds
+- [x] Test: create account with duplicate number fails
+- [x] Test: deactivate with zero balance succeeds
+- [x] Test: deactivate with non-zero balance fails
+- [x] Test: cannot change account type after creation
+- [x] Test: deactivated accounts excluded from active queries
+- [x] CHECK: Can add, rename, deactivate accounts via UI, all tests pass, `npm run check` clean
 
 ## PHASE 11 — Transaction Register (Read-Only)
 - [ ] Add `list_transactions` Rust command (pagination, sort, filters: date range, account, amount, memo)
@@ -228,8 +228,8 @@
 
 ---
 
-## CURRENT PHASE: 10
-## LAST COMPLETED CHECK: Phase 9 — app shell + dashboard, 24 tests pass (2026-04-05)
+## CURRENT PHASE: 11
+## LAST COMPLETED CHECK: Phase 10 — account CRUD, 33 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (scoped, not scheduled)

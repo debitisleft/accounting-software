@@ -1,8 +1,19 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 9 Complete — working on Phase 10
+## STATUS: Phase 10 Complete — working on Phase 11
 
 ## COMPLETED
+
+### Phase 10 — Account Management CRUD (2026-04-05)
+- Added 4 Rust commands: create_account, update_account, deactivate_account, reactivate_account
+- All 4 commands added to api.ts + MockApi with matching validation logic
+- create_account validates: non-empty name/code, unique code, valid type enum
+- update_account: can change name/code but NOT type (preserves historical balances)
+- deactivate_account: rejects if balance != 0, sets is_active=0
+- get_accounts already filters to is_active=1 (deactivated hidden from dropdowns)
+- Updated AccountsListPage: Add Account form, inline edit (name + code), deactivate button (disabled if balance != 0)
+- 9 new tests: create valid, duplicate code, deactivate zero/non-zero, type immutable, inactive excluded, reactivate, update, dup code on update
+- 33 total tests pass, typecheck clean
 
 ### Phase 9 — App Shell & Navigation (2026-04-05)
 - Added `get_app_metadata` Rust command (version, db path, last backup date)

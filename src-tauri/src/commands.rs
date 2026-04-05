@@ -721,3 +721,155 @@ pub async fn get_dashboard_summary(db: State<'_, DbState>) -> Result<DashboardSu
         recent_transactions,
     })
 }
+
+// ── Phase 10: Account Management (CRUD) ──────────────────
+
+#[tauri::command]
+pub async fn create_account(
+    db: State<'_, DbState>,
+    code: String,
+    name: String,
+    acct_type: String,
+    parent_id: Option<String>,
+) -> Result<String, String> {
+    let valid_types = ["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"];
+    if !valid_types.contains(&acct_type.as_str()) {
+        return Err(format!("Invalid account type: {}", acct_type));
+    }
+    if name.trim().is_empty() {
+        return Err("Account name cannot be empty".to_string());
+    }
+    if code.trim().is_empty() {
+        return Err("Account code cannot be empty".to_string());
+    }
+
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    // Check unique code
+    let exists: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM accounts WHERE code = ?1",
+        params![code],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+    if exists {
+        return Err(format!("Account code '{}' already exists", code));
+    }
+
+    let id = Uuid::new_v4().to_string();
+    let nb = if is_debit_normal(&acct_type) { "DEBIT" } else { "CREDIT" };
+    let now = Utc::now().timestamp();
+
+    conn.execute(
+        "INSERT INTO accounts (id, code, name, type, normal_balance, parent_id, is_active, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1, ?7)",
+        params![id, code.trim(), name.trim(), acct_type, nb, parent_id, now],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn update_account(
+    db: State<'_, DbState>,
+    account_id: String,
+    name: Option<String>,
+    code: Option<String>,
+) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    // Verify account exists
+    let _exists: String = conn.query_row(
+        "SELECT id FROM accounts WHERE id = ?1",
+        params![account_id],
+        |row| row.get(0),
+    ).map_err(|_| format!("Account not found: {}", account_id))?;
+
+    if let Some(ref new_name) = name {
+        if new_name.trim().is_empty() {
+            return Err("Account name cannot be empty".to_string());
+        }
+        conn.execute(
+            "UPDATE accounts SET name = ?1 WHERE id = ?2",
+            params![new_name.trim(), account_id],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    if let Some(ref new_code) = code {
+        if new_code.trim().is_empty() {
+            return Err("Account code cannot be empty".to_string());
+        }
+        // Check uniqueness
+        let dup: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM accounts WHERE code = ?1 AND id != ?2",
+            params![new_code.trim(), account_id],
+            |row| row.get(0),
+        ).map_err(|e| e.to_string())?;
+        if dup {
+            return Err(format!("Account code '{}' already exists", new_code));
+        }
+        conn.execute(
+            "UPDATE accounts SET code = ?1 WHERE id = ?2",
+            params![new_code.trim(), account_id],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn deactivate_account(
+    db: State<'_, DbState>,
+    account_id: String,
+) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    let acct_type: String = conn.query_row(
+        "SELECT type FROM accounts WHERE id = ?1",
+        params![account_id],
+        |row| row.get(0),
+    ).map_err(|_| format!("Account not found: {}", account_id))?;
+
+    // Check balance is zero
+    let (total_debit, total_credit): (i64, i64) = conn.query_row(
+        "SELECT COALESCE(SUM(debit), 0), COALESCE(SUM(credit), 0) FROM journal_entries WHERE account_id = ?1",
+        params![account_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(|e| e.to_string())?;
+
+    let balance = if is_debit_normal(&acct_type) {
+        total_debit - total_credit
+    } else {
+        total_credit - total_debit
+    };
+
+    if balance != 0 {
+        return Err(format!("Cannot deactivate account with non-zero balance ({})", balance));
+    }
+
+    conn.execute(
+        "UPDATE accounts SET is_active = 0 WHERE id = ?1",
+        params![account_id],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn reactivate_account(
+    db: State<'_, DbState>,
+    account_id: String,
+) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    let _exists: String = conn.query_row(
+        "SELECT id FROM accounts WHERE id = ?1",
+        params![account_id],
+        |row| row.get(0),
+    ).map_err(|_| format!("Account not found: {}", account_id))?;
+
+    conn.execute(
+        "UPDATE accounts SET is_active = 1 WHERE id = ?1",
+        params![account_id],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(())
+}

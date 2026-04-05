@@ -178,4 +178,25 @@ export const api = {
 
   getDashboardSummary: () =>
     invoke<DashboardSummary>('get_dashboard_summary'),
+
+  createAccount: (data: { code: string; name: string; acctType: string; parentId?: string }) =>
+    invoke<string>('create_account', {
+      code: data.code,
+      name: data.name,
+      acctType: data.acctType,
+      parentId: data.parentId ?? null,
+    }),
+
+  updateAccount: (accountId: string, data: { name?: string; code?: string }) =>
+    invoke<void>('update_account', {
+      accountId,
+      name: data.name ?? null,
+      code: data.code ?? null,
+    }),
+
+  deactivateAccount: (accountId: string) =>
+    invoke<void>('deactivate_account', { accountId }),
+
+  reactivateAccount: (accountId: string) =>
+    invoke<void>('reactivate_account', { accountId }),
 }

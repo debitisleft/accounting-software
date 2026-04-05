@@ -271,6 +271,65 @@ export class MockApi {
     }
   }
 
+  createAccount(data: { code: string; name: string; acctType: string; parentId?: string }): string {
+    const validTypes = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE']
+    if (!validTypes.includes(data.acctType)) {
+      throw new Error(`Invalid account type: ${data.acctType}`)
+    }
+    if (!data.name.trim()) throw new Error('Account name cannot be empty')
+    if (!data.code.trim()) throw new Error('Account code cannot be empty')
+    if (this.accounts.some((a) => a.code === data.code)) {
+      throw new Error(`Account code '${data.code}' already exists`)
+    }
+
+    const id = this.genId()
+    this.accounts.push({
+      id,
+      code: data.code.trim(),
+      name: data.name.trim(),
+      type: data.acctType,
+      normal_balance: isDebitNormal(data.acctType) ? 'DEBIT' : 'CREDIT',
+      parent_id: data.parentId ?? null,
+      is_active: 1,
+      created_at: Date.now(),
+    })
+    return id
+  }
+
+  updateAccount(accountId: string, data: { name?: string; code?: string }): void {
+    const acct = this.accounts.find((a) => a.id === accountId)
+    if (!acct) throw new Error(`Account not found: ${accountId}`)
+
+    if (data.name !== undefined) {
+      if (!data.name.trim()) throw new Error('Account name cannot be empty')
+      acct.name = data.name.trim()
+    }
+    if (data.code !== undefined) {
+      if (!data.code.trim()) throw new Error('Account code cannot be empty')
+      if (this.accounts.some((a) => a.code === data.code && a.id !== accountId)) {
+        throw new Error(`Account code '${data.code}' already exists`)
+      }
+      acct.code = data.code.trim()
+    }
+  }
+
+  deactivateAccount(accountId: string): void {
+    const acct = this.accounts.find((a) => a.id === accountId)
+    if (!acct) throw new Error(`Account not found: ${accountId}`)
+
+    const balance = this.getAccountBalance(accountId)
+    if (balance !== 0) {
+      throw new Error(`Cannot deactivate account with non-zero balance (${balance})`)
+    }
+    acct.is_active = 0
+  }
+
+  reactivateAccount(accountId: string): void {
+    const acct = this.accounts.find((a) => a.id === accountId)
+    if (!acct) throw new Error(`Account not found: ${accountId}`)
+    acct.is_active = 1
+  }
+
   getDashboardSummary(): DashboardSummary {
     const bs = this.getBalanceSheet('9999-12-31')
     const is = this.getIncomeStatement('0000-01-01', '9999-12-31')
