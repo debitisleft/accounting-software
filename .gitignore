@@ -1,0 +1,10 @@
+# .gitignore
+node_modules/
+dist/
+.env
+*.db          # never commit the actual database
+*.db-shm
+*.db-wal
+src-tauri/target/
+test-results.log
+.logs/

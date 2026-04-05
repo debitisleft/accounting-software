@@ -10,11 +10,11 @@
 ---
 
 ## PHASE 1 — Project Scaffold
-- [ ] Initialize Tauri + React + TypeScript project
-- [ ] Install Drizzle ORM + better-sqlite3
-- [ ] Install Vitest for testing
-- [ ] Verify dev server runs with no errors
-- [ ] CHECK: `npm run dev` opens without console errors
+- [x] Initialize Tauri + React + TypeScript project
+- [x] Install Drizzle ORM + better-sqlite3
+- [x] Install Vitest for testing
+- [x] Verify dev server runs with no errors
+- [x] CHECK: `npm run dev` opens without console errors
 
 ## PHASE 2 — Database Schema
 - [ ] Create schema.ts with accounts, transactions, journal_entries tables
@@ -66,6 +66,6 @@
 - [ ] CHECK: All Vitest tests still passing
 
 ---
-## CURRENT PHASE: 1
-## LAST COMPLETED CHECK: None
+## CURRENT PHASE: 2
+## LAST COMPLETED CHECK: Phase 1 — npm run check passes (2026-04-05)
 ## BLOCKING ISSUES: None
