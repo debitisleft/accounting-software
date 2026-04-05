@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useDatabase } from '../db/DatabaseProvider'
-import { getTrialBalance } from '../lib/accounting'
-import type { TrialBalance } from '../lib/accounting'
+import { api, type TrialBalanceResult } from '../lib/api'
 
 function formatCents(cents: number): string {
   if (cents === 0) return ''
@@ -11,32 +9,28 @@ function formatCents(cents: number): string {
   return `$${dollars.toLocaleString()}.${String(remainder).padStart(2, '0')}`
 }
 
-export function TrialBalanceReport() {
-  const { db, isLoading, error, version } = useDatabase()
-  const [trialBalance, setTrialBalance] = useState<TrialBalance | null>(null)
+export function TrialBalanceReport({ version }: { version: number }) {
+  const [data, setData] = useState<TrialBalanceResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!db) return
-    getTrialBalance(db).then(setTrialBalance)
-  }, [db, version])
+    api.getTrialBalance().then(setData).catch((e) => setError(String(e)))
+  }, [version])
 
-  if (isLoading) return <div>Loading...</div>
   if (error) return <div>Error: {error}</div>
-  if (!db || !trialBalance) return <div>No data</div>
-
-  const isBalanced = trialBalance.totalDebit === trialBalance.totalCredit
+  if (!data) return <div>Loading...</div>
 
   return (
     <div style={{ padding: '20px', maxWidth: '700px', margin: '0 auto' }}>
       <h2>Trial Balance</h2>
 
-      {!isBalanced && (
+      {!data.is_balanced && (
         <div style={{ padding: '12px', backgroundColor: '#ffe6e6', color: 'red', borderRadius: '4px', marginBottom: '16px', fontWeight: 'bold' }}>
-          OUT OF BALANCE — Debits ({formatCents(trialBalance.totalDebit)}) != Credits ({formatCents(trialBalance.totalCredit)})
+          OUT OF BALANCE — Debits ({formatCents(data.total_debits)}) != Credits ({formatCents(data.total_credits)})
         </div>
       )}
 
-      {trialBalance.rows.length === 0 ? (
+      {data.rows.length === 0 ? (
         <p>No transactions recorded yet.</p>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -49,8 +43,8 @@ export function TrialBalanceReport() {
             </tr>
           </thead>
           <tbody>
-            {trialBalance.rows.map((row) => (
-              <tr key={row.accountId} style={{ borderBottom: '1px solid #ddd' }}>
+            {data.rows.map((row) => (
+              <tr key={row.account_id} style={{ borderBottom: '1px solid #ddd' }}>
                 <td style={{ padding: '6px 8px', fontFamily: 'monospace' }}>{row.code}</td>
                 <td style={{ padding: '6px 8px' }}>{row.name}</td>
                 <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
@@ -66,17 +60,17 @@ export function TrialBalanceReport() {
             <tr style={{ borderTop: '2px solid #333', fontWeight: 'bold' }}>
               <td colSpan={2} style={{ padding: '8px' }}>TOTAL</td>
               <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'monospace' }}>
-                {formatCents(trialBalance.totalDebit)}
+                {formatCents(data.total_debits)}
               </td>
               <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'monospace' }}>
-                {formatCents(trialBalance.totalCredit)}
+                {formatCents(data.total_credits)}
               </td>
             </tr>
           </tfoot>
         </table>
       )}
 
-      {isBalanced && trialBalance.rows.length > 0 && (
+      {data.is_balanced && data.rows.length > 0 && (
         <div style={{ padding: '12px', backgroundColor: '#e6ffe6', color: 'green', borderRadius: '4px', marginTop: '16px', textAlign: 'center' }}>
           Trial Balance is balanced.
         </div>

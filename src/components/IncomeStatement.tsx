@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useDatabase } from '../db/DatabaseProvider'
-import { getIncomeStatement } from '../lib/accounting'
-import type { IncomeStatement } from '../lib/accounting'
+import { api, type IncomeStatementResult } from '../lib/api'
 
 function formatCents(cents: number): string {
   const negative = cents < 0
@@ -12,20 +10,18 @@ function formatCents(cents: number): string {
   return negative ? `(${formatted})` : formatted
 }
 
-export function IncomeStatementReport() {
-  const { db, isLoading, error, version } = useDatabase()
+export function IncomeStatementReport({ version }: { version: number }) {
   const [startDate, setStartDate] = useState('2026-01-01')
   const [endDate, setEndDate] = useState('2026-12-31')
-  const [report, setReport] = useState<IncomeStatement | null>(null)
+  const [report, setReport] = useState<IncomeStatementResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!db) return
-    getIncomeStatement(db, startDate, endDate).then(setReport)
-  }, [db, version, startDate, endDate])
+    api.getIncomeStatement(startDate, endDate).then(setReport).catch((e) => setError(String(e)))
+  }, [version, startDate, endDate])
 
-  if (isLoading) return <div>Loading...</div>
   if (error) return <div>Error: {error}</div>
-  if (!db || !report) return <div>No data</div>
+  if (!report) return <div>Loading...</div>
 
   return (
     <div style={{ padding: '20px', maxWidth: '700px', margin: '0 auto' }}>
@@ -42,15 +38,14 @@ export function IncomeStatementReport() {
         </label>
       </div>
 
-      {/* Revenue */}
       <h3 style={{ borderBottom: '1px solid #333', paddingBottom: '4px' }}>Revenue</h3>
-      {report.revenue.accounts.length === 0 ? (
+      {report.revenue.length === 0 ? (
         <p style={{ color: '#888' }}>No revenue in this period.</p>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '8px' }}>
           <tbody>
-            {report.revenue.accounts.map((acct) => (
-              <tr key={acct.accountId}>
+            {report.revenue.map((acct) => (
+              <tr key={acct.account_id}>
                 <td style={{ padding: '4px 8px' }}>{acct.code} — {acct.name}</td>
                 <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
                   {formatCents(acct.balance)}
@@ -60,22 +55,21 @@ export function IncomeStatementReport() {
             <tr style={{ fontWeight: 'bold', borderTop: '1px solid #999' }}>
               <td style={{ padding: '4px 8px' }}>Total Revenue</td>
               <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
-                {formatCents(report.revenue.total)}
+                {formatCents(report.total_revenue)}
               </td>
             </tr>
           </tbody>
         </table>
       )}
 
-      {/* Expenses */}
       <h3 style={{ borderBottom: '1px solid #333', paddingBottom: '4px' }}>Expenses</h3>
-      {report.expenses.accounts.length === 0 ? (
+      {report.expenses.length === 0 ? (
         <p style={{ color: '#888' }}>No expenses in this period.</p>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '8px' }}>
           <tbody>
-            {report.expenses.accounts.map((acct) => (
-              <tr key={acct.accountId}>
+            {report.expenses.map((acct) => (
+              <tr key={acct.account_id}>
                 <td style={{ padding: '4px 8px' }}>{acct.code} — {acct.name}</td>
                 <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
                   {formatCents(acct.balance)}
@@ -85,26 +79,25 @@ export function IncomeStatementReport() {
             <tr style={{ fontWeight: 'bold', borderTop: '1px solid #999' }}>
               <td style={{ padding: '4px 8px' }}>Total Expenses</td>
               <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
-                {formatCents(report.expenses.total)}
+                {formatCents(report.total_expenses)}
               </td>
             </tr>
           </tbody>
         </table>
       )}
 
-      {/* Net Income */}
       <div
         style={{
           padding: '12px',
           marginTop: '16px',
           borderRadius: '4px',
-          backgroundColor: report.netIncome >= 0 ? '#e6ffe6' : '#ffe6e6',
+          backgroundColor: report.net_income >= 0 ? '#e6ffe6' : '#ffe6e6',
           fontWeight: 'bold',
           fontSize: '18px',
           textAlign: 'center',
         }}
       >
-        Net Income: {formatCents(report.netIncome)}
+        Net Income: {formatCents(report.net_income)}
       </div>
     </div>
   )

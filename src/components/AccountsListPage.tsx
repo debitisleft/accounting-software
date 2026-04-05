@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useDatabase } from '../db/DatabaseProvider'
-import { getAccountBalance } from '../lib/accounting'
-import type { AccountBalance } from '../lib/accounting'
+import { api, type Account } from '../lib/api'
 
 /** Formats integer cents as dollar string: 15000 → "$150.00" */
 function formatCents(cents: number): string {
@@ -13,31 +11,39 @@ function formatCents(cents: number): string {
   return negative ? `(${formatted})` : formatted
 }
 
-export function AccountsListPage() {
-  const { db, isLoading, error, version } = useDatabase()
-  const [balances, setBalances] = useState<AccountBalance[]>([])
+interface AccountWithBalance extends Account {
+  balance: number
+}
+
+export function AccountsListPage({ version }: { version: number }) {
+  const [accounts, setAccounts] = useState<AccountWithBalance[]>([])
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!db) return
-    ;(async () => {
-      const allAccounts = await db.accounts.toArray()
-      const results = await Promise.all(
-        allAccounts.map((acct) => getAccountBalance(db, acct.id!)),
-      )
-      setBalances(results)
+    (async () => {
+      try {
+        const accts = await api.getAccounts()
+        const withBalances = await Promise.all(
+          accts.map(async (acct) => {
+            const balance = await api.getAccountBalance(acct.id)
+            return { ...acct, balance }
+          }),
+        )
+        setAccounts(withBalances)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+      }
     })()
-  }, [db, version])
+  }, [version])
 
-  if (isLoading) return <div>Loading database...</div>
   if (error) return <div>Error: {error}</div>
-  if (!db) return <div>Database not available</div>
 
   const grouped = {
-    ASSET: balances.filter((b) => b.type === 'ASSET'),
-    LIABILITY: balances.filter((b) => b.type === 'LIABILITY'),
-    EQUITY: balances.filter((b) => b.type === 'EQUITY'),
-    REVENUE: balances.filter((b) => b.type === 'REVENUE'),
-    EXPENSE: balances.filter((b) => b.type === 'EXPENSE'),
+    ASSET: accounts.filter((a) => a.type === 'ASSET'),
+    LIABILITY: accounts.filter((a) => a.type === 'LIABILITY'),
+    EQUITY: accounts.filter((a) => a.type === 'EQUITY'),
+    REVENUE: accounts.filter((a) => a.type === 'REVENUE'),
+    EXPENSE: accounts.filter((a) => a.type === 'EXPENSE'),
   }
 
   return (
@@ -58,7 +64,7 @@ export function AccountsListPage() {
             </thead>
             <tbody>
               {accts.map((acct) => (
-                <tr key={acct.accountId}>
+                <tr key={acct.id}>
                   <td style={{ padding: '4px 8px', fontFamily: 'monospace' }}>
                     {acct.code}
                   </td>

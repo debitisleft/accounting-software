@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useDatabase } from '../db/DatabaseProvider'
-import { createTransaction } from '../lib/accounting'
-import type { Account } from '../db/index'
+import { api, type Account } from '../lib/api'
 
 interface EntryRow {
   accountId: string
@@ -24,8 +22,13 @@ function dollarsToCents(dollars: string): number {
   return Math.round(parseFloat(trimmed) * 100)
 }
 
-export function JournalEntryForm() {
-  const { db, isLoading, error, refresh, version } = useDatabase()
+export function JournalEntryForm({
+  version,
+  onSaved,
+}: {
+  version: number
+  onSaved: () => void
+}) {
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0])
   const [description, setDescription] = useState('')
   const [rows, setRows] = useState<EntryRow[]>([emptyRow(), emptyRow()])
@@ -33,14 +36,17 @@ export function JournalEntryForm() {
   const [accountList, setAccountList] = useState<Account[]>([])
 
   useEffect(() => {
-    if (!db) return
-    db.accounts.toArray().then(setAccountList)
-  }, [db, version])
+    api.getAccounts().then(setAccountList).catch(() => {})
+  }, [version])
 
   const totalDebit = rows.reduce((sum, r) => sum + dollarsToCents(r.debitDollars), 0)
   const totalCredit = rows.reduce((sum, r) => sum + dollarsToCents(r.creditDollars), 0)
   const isBalanced = totalDebit === totalCredit && totalDebit > 0
-  const hasAllAccounts = rows.every((r) => r.accountId !== '' && (dollarsToCents(r.debitDollars) > 0 || dollarsToCents(r.creditDollars) > 0))
+  const hasAllAccounts = rows.every(
+    (r) =>
+      r.accountId !== '' &&
+      (dollarsToCents(r.debitDollars) > 0 || dollarsToCents(r.creditDollars) > 0),
+  )
   const canSave = isBalanced && hasAllAccounts && description.trim() !== '' && date !== ''
 
   const updateRow = (index: number, field: keyof EntryRow, value: string) => {
@@ -55,41 +61,38 @@ export function JournalEntryForm() {
   }
 
   const handleSave = async () => {
-    if (!db || !canSave) return
+    if (!canSave) return
 
     const entries = rows
       .filter((r) => r.accountId !== '')
       .map((r) => ({
-        accountId: parseInt(r.accountId, 10),
+        account_id: r.accountId,
         debit: dollarsToCents(r.debitDollars),
         credit: dollarsToCents(r.creditDollars),
         memo: r.memo || undefined,
       }))
 
     try {
-      const txId = await createTransaction(db, {
+      const txId = await api.createTransaction({
         date,
         description: description.trim(),
         entries,
       })
-      setSaveMessage(`Transaction #${txId} saved successfully!`)
+      setSaveMessage(`Transaction ${txId.slice(0, 8)}... saved!`)
       setDescription('')
       setRows([emptyRow(), emptyRow()])
-      refresh()
+      onSaved()
     } catch (err) {
       setSaveMessage(`Error: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
-  if (isLoading) return <div>Loading database...</div>
-  if (error) return <div>Error: {error}</div>
-  if (!db) return <div>Database not available</div>
-
-  const balanceColor = totalDebit === 0 && totalCredit === 0
-    ? '#888'
-    : isBalanced
-      ? 'green'
-      : 'red'
+  const balanceColor =
+    totalDebit === 0 && totalCredit === 0
+      ? '#888'
+      : isBalanced
+        ? 'green'
+        : 'red'
 
   return (
     <div style={{ padding: '20px', maxWidth: '900px', margin: '0 auto' }}>
@@ -203,13 +206,17 @@ export function JournalEntryForm() {
         </tfoot>
       </table>
 
-      {/* Balance indicator */}
       <div
         style={{
           padding: '8px 16px',
           marginBottom: '16px',
           borderRadius: '4px',
-          backgroundColor: balanceColor === 'green' ? '#e6ffe6' : balanceColor === 'red' ? '#ffe6e6' : '#f5f5f5',
+          backgroundColor:
+            balanceColor === 'green'
+              ? '#e6ffe6'
+              : balanceColor === 'red'
+                ? '#ffe6e6'
+                : '#f5f5f5',
           color: balanceColor,
           fontWeight: 'bold',
           textAlign: 'center',

@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useDatabase } from '../db/DatabaseProvider'
-import { getBalanceSheet } from '../lib/accounting'
-import type { BalanceSheet } from '../lib/accounting'
+import { api, type BalanceSheetResult } from '../lib/api'
 
 function formatCents(cents: number): string {
   const negative = cents < 0
@@ -12,19 +10,17 @@ function formatCents(cents: number): string {
   return negative ? `(${formatted})` : formatted
 }
 
-export function BalanceSheetReport() {
-  const { db, isLoading, error, version } = useDatabase()
+export function BalanceSheetReport({ version }: { version: number }) {
   const [asOfDate, setAsOfDate] = useState('2026-12-31')
-  const [report, setReport] = useState<BalanceSheet | null>(null)
+  const [report, setReport] = useState<BalanceSheetResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!db) return
-    getBalanceSheet(db, asOfDate).then(setReport)
-  }, [db, version, asOfDate])
+    api.getBalanceSheet(asOfDate).then(setReport).catch((e) => setError(String(e)))
+  }, [version, asOfDate])
 
-  if (isLoading) return <div>Loading...</div>
   if (error) return <div>Error: {error}</div>
-  if (!db || !report) return <div>No data</div>
+  if (!report) return <div>Loading...</div>
 
   return (
     <div style={{ padding: '20px', maxWidth: '700px', margin: '0 auto' }}>
@@ -37,18 +33,17 @@ export function BalanceSheetReport() {
         </label>
       </div>
 
-      {!report.isBalanced && (
+      {!report.is_balanced && (
         <div style={{ padding: '12px', backgroundColor: '#ffe6e6', color: 'red', borderRadius: '4px', marginBottom: '16px', fontWeight: 'bold' }}>
-          OUT OF BALANCE — Assets ({formatCents(report.assets.total)}) != Liabilities + Equity ({formatCents(report.liabilities.total + report.equity.total)})
+          OUT OF BALANCE — Assets ({formatCents(report.total_assets)}) != Liabilities + Equity ({formatCents(report.total_liabilities + report.total_equity)})
         </div>
       )}
 
-      {/* Assets */}
       <h3 style={{ borderBottom: '1px solid #333', paddingBottom: '4px' }}>Assets</h3>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '8px' }}>
         <tbody>
-          {report.assets.accounts.map((acct) => (
-            <tr key={acct.accountId}>
+          {report.assets.map((acct) => (
+            <tr key={acct.account_id}>
               <td style={{ padding: '4px 8px' }}>{acct.code} — {acct.name}</td>
               <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
                 {formatCents(acct.balance)}
@@ -58,18 +53,17 @@ export function BalanceSheetReport() {
           <tr style={{ fontWeight: 'bold', borderTop: '1px solid #999' }}>
             <td style={{ padding: '6px 8px' }}>Total Assets</td>
             <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
-              {formatCents(report.assets.total)}
+              {formatCents(report.total_assets)}
             </td>
           </tr>
         </tbody>
       </table>
 
-      {/* Liabilities */}
       <h3 style={{ borderBottom: '1px solid #333', paddingBottom: '4px' }}>Liabilities</h3>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '8px' }}>
         <tbody>
-          {report.liabilities.accounts.map((acct) => (
-            <tr key={acct.accountId}>
+          {report.liabilities.map((acct) => (
+            <tr key={acct.account_id}>
               <td style={{ padding: '4px 8px' }}>{acct.code} — {acct.name}</td>
               <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
                 {formatCents(acct.balance)}
@@ -79,18 +73,17 @@ export function BalanceSheetReport() {
           <tr style={{ fontWeight: 'bold', borderTop: '1px solid #999' }}>
             <td style={{ padding: '6px 8px' }}>Total Liabilities</td>
             <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
-              {formatCents(report.liabilities.total)}
+              {formatCents(report.total_liabilities)}
             </td>
           </tr>
         </tbody>
       </table>
 
-      {/* Equity */}
       <h3 style={{ borderBottom: '1px solid #333', paddingBottom: '4px' }}>Equity</h3>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '8px' }}>
         <tbody>
-          {report.equity.accounts.map((acct) => (
-            <tr key={acct.accountId}>
+          {report.equity.map((acct) => (
+            <tr key={acct.account_id}>
               <td style={{ padding: '4px 8px' }}>{acct.code} — {acct.name}</td>
               <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
                 {formatCents(acct.balance)}
@@ -100,26 +93,25 @@ export function BalanceSheetReport() {
           <tr style={{ fontWeight: 'bold', borderTop: '1px solid #999' }}>
             <td style={{ padding: '6px 8px' }}>Total Equity (incl. Net Income)</td>
             <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
-              {formatCents(report.equity.total)}
+              {formatCents(report.total_equity)}
             </td>
           </tr>
         </tbody>
       </table>
 
-      {/* Accounting Equation */}
       <div
         style={{
           padding: '12px',
           marginTop: '16px',
           borderRadius: '4px',
-          backgroundColor: report.isBalanced ? '#e6ffe6' : '#ffe6e6',
+          backgroundColor: report.is_balanced ? '#e6ffe6' : '#ffe6e6',
           fontWeight: 'bold',
           textAlign: 'center',
         }}
       >
-        {report.isBalanced
-          ? `Assets (${formatCents(report.assets.total)}) = Liabilities (${formatCents(report.liabilities.total)}) + Equity (${formatCents(report.equity.total)})`
-          : `OUT OF BALANCE: ${formatCents(report.assets.total)} != ${formatCents(report.liabilities.total + report.equity.total)}`}
+        {report.is_balanced
+          ? `Assets (${formatCents(report.total_assets)}) = Liabilities (${formatCents(report.total_liabilities)}) + Equity (${formatCents(report.total_equity)})`
+          : `OUT OF BALANCE: ${formatCents(report.total_assets)} != ${formatCents(report.total_liabilities + report.total_equity)}`}
       </div>
     </div>
   )
