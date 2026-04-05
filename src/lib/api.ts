@@ -77,6 +77,12 @@ export interface BackupInfo {
   created_at: string
 }
 
+export interface LockedPeriod {
+  id: string
+  end_date: string
+  locked_at: number
+}
+
 export interface AuditLogEntry {
   id: string
   transaction_id: string | null
@@ -321,4 +327,13 @@ export const api = {
 
   getAllSettings: () =>
     invoke<Record<string, string>>('get_all_settings'),
+
+  lockPeriodGlobal: (endDate: string) =>
+    invoke<void>('lock_period_global', { endDate }),
+
+  unlockPeriodGlobal: () =>
+    invoke<void>('unlock_period_global'),
+
+  listLockedPeriodsGlobal: () =>
+    invoke<LockedPeriod[]>('list_locked_periods_global'),
 }

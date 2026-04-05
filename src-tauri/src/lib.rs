@@ -71,6 +71,9 @@ pub fn run() {
             commands::get_setting,
             commands::set_setting,
             commands::get_all_settings,
+            commands::lock_period_global,
+            commands::unlock_period_global,
+            commands::list_locked_periods_global,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

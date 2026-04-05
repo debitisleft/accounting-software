@@ -22,6 +22,7 @@ import type {
   ImportResult,
   AutoBackupResult,
   BackupInfo,
+  LockedPeriod,
 } from '../../lib/api'
 
 interface StoredTransaction {
@@ -74,6 +75,7 @@ export class MockApi {
   auditLog: StoredAuditLog[] = []
   lockPeriods: StoredLockPeriod[] = []
   backups: { path: string; filename: string; size: number; created_at: string }[] = []
+  globalLocks: { id: string; end_date: string; locked_at: number }[] = []
   settings: Record<string, string> = {
     company_name: 'My Company',
     fiscal_year_start_month: '1',
@@ -353,6 +355,11 @@ export class MockApi {
   private isTransactionLocked(transactionId: string): boolean {
     const tx = this.transactions.find((t) => t.id === transactionId)
     if (!tx) return false
+
+    // Check global locks
+    if (this.globalLocks.some((gl) => gl.end_date >= tx.date)) return true
+
+    // Check per-account locks
     const txEntryAccountIds = this.entries
       .filter((e) => e.transaction_id === transactionId)
       .map((e) => e.account_id)
@@ -590,6 +597,29 @@ export class MockApi {
       default:
         throw new Error(`Unknown export type: ${exportType}`)
     }
+  }
+
+  lockPeriodGlobal(endDate: string): void {
+    if (this.globalLocks.some((gl) => gl.end_date > endDate)) {
+      throw new Error('Cannot lock: a later period is already locked (would create gap)')
+    }
+    this.globalLocks.push({ id: this.genId(), end_date: endDate, locked_at: Date.now() })
+  }
+
+  unlockPeriodGlobal(): void {
+    if (this.globalLocks.length === 0) throw new Error('No locked periods to unlock')
+    this.globalLocks.sort((a, b) => b.end_date.localeCompare(a.end_date))
+    this.globalLocks.shift()
+  }
+
+  listLockedPeriodsGlobal(): LockedPeriod[] {
+    return this.globalLocks
+      .slice()
+      .sort((a, b) => b.end_date.localeCompare(a.end_date))
+  }
+
+  isDateLocked(date: string): boolean {
+    return this.globalLocks.some((gl) => gl.end_date >= date)
   }
 
   getSetting(key: string): string | null {

@@ -197,20 +197,20 @@
 - [x] CHECK: Settings save/persist, currency and dates reflected in app, all tests pass, `npm run check` clean
 
 ## PHASE 16 — Period Management UI
-- [ ] Add `lock_period` Rust command (end_date, validates sequential)
-- [ ] Add `unlock_period` Rust command (removes most recent lock, writes audit log)
-- [ ] Add `list_locked_periods` Rust command
-- [ ] Add all 3 commands to api.ts + MockApi
-- [ ] Create `PeriodManagement.tsx` (under Settings): locked periods list, lock date picker, unlock button
-- [ ] Confirmation dialogs for lock and unlock actions
-- [ ] Lock icon + grey styling on locked transactions in TransactionRegister
-- [ ] JournalEntryForm date picker prevents locked dates
-- [ ] Dashboard shows locked-through date
-- [ ] Test: lock prevents edits in range
-- [ ] Test: lock prevents new transactions in range
-- [ ] Test: unlock re-enables editing
-- [ ] Test: cannot create gap in locked periods
-- [ ] CHECK: Lock/unlock works via UI, visual indicators correct, all tests pass, `npm run check` clean
+- [x] Add `lock_period` Rust command (end_date, validates sequential)
+- [x] Add `unlock_period` Rust command (removes most recent lock, writes audit log)
+- [x] Add `list_locked_periods` Rust command
+- [x] Add all 3 commands to api.ts + MockApi
+- [x] Create `PeriodManagement.tsx` (under Settings): locked periods list, lock date picker, unlock button
+- [x] Confirmation dialogs for lock and unlock actions
+- [x] Lock icon + grey styling on locked transactions in TransactionRegister
+- [x] JournalEntryForm date picker prevents locked dates
+- [x] Dashboard shows locked-through date
+- [x] Test: lock prevents edits in range
+- [x] Test: lock prevents new transactions in range
+- [x] Test: unlock re-enables editing
+- [x] Test: cannot create gap in locked periods
+- [x] CHECK: Lock/unlock works via UI, visual indicators correct, all tests pass, `npm run check` clean
 
 ## PHASE 17 — Report Enhancements
 - [ ] Add `get_account_ledger` Rust command (transactions for one account, running balance, pagination)
@@ -228,8 +228,8 @@
 
 ---
 
-## CURRENT PHASE: 16
-## LAST COMPLETED CHECK: Phase 15 — settings, 65 tests pass (2026-04-05)
+## CURRENT PHASE: 17
+## LAST COMPLETED CHECK: Phase 16 — period management, 70 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (scoped, not scheduled)

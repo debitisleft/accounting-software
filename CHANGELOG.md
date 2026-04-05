@@ -1,8 +1,20 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 15 Complete — working on Phase 16
+## STATUS: Phase 16 Complete — working on Phase 17
 
 ## COMPLETED
+
+### Phase 16 — Period Management UI (2026-04-05)
+- Added 3 Rust commands: lock_period_global, unlock_period_global, list_locked_periods_global
+- Global lock model: locks everything through a date using account_id='GLOBAL' in reconciliation_periods
+- Updated is_transaction_locked() to check global locks first, then per-account locks
+- Sequential enforcement: cannot lock a date earlier than existing lock (prevents gaps)
+- Created PeriodManagement.tsx: lock date picker, unlock button, periods list, confirmation dialogs
+- Integrated into SettingsPage under new "Period Locking" section
+- TransactionRegister already shows lock icon for locked transactions (Phase 12)
+- All 3 commands in api.ts + MockApi (with isDateLocked helper for UI)
+- 5 new tests: lock prevents edits, lock date check, unlock re-enables, no gaps, list order
+- 70 total tests pass, typecheck clean
 
 ### Phase 15 — Settings & Preferences (2026-04-05)
 - Created settings table in db.rs with default seeds: company_name, fiscal_year_start_month, currency_symbol, date_format

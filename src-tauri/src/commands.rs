@@ -1064,8 +1064,22 @@ pub async fn count_transactions(
 // ── Phase 12: Transaction Editing, Voiding & Audit Trail ─
 
 fn is_transaction_locked(conn: &rusqlite::Connection, transaction_id: &str) -> Result<bool, String> {
-    // A transaction is locked if ANY of its journal entries touch an account
-    // that has a locked period covering the transaction date
+    // Check global period lock first
+    let tx_date: String = conn.query_row(
+        "SELECT date FROM transactions WHERE id = ?1",
+        params![transaction_id],
+        |row| row.get(0),
+    ).map_err(|_| format!("Transaction not found: {}", transaction_id))?;
+
+    let global_locked: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM reconciliation_periods WHERE account_id = 'GLOBAL' AND period_end >= ?1 AND is_locked = 1",
+        params![tx_date],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    if global_locked { return Ok(true); }
+
+    // Check per-account period locks
     let locked: bool = conn.query_row(
         "SELECT COUNT(*) > 0 FROM journal_entries je
          JOIN transactions t ON je.transaction_id = t.id
@@ -1776,4 +1790,88 @@ pub async fn get_all_settings(
         map.insert(k, v);
     }
     Ok(map)
+}
+
+// ── Phase 16: Period Management ──────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct LockedPeriod {
+    pub id: String,
+    pub end_date: String,
+    pub locked_at: i64,
+}
+
+#[tauri::command]
+pub async fn lock_period_global(
+    db: State<'_, DbState>,
+    end_date: String,
+) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    // Check no existing lock is after this date (sequential enforcement)
+    let existing_after: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM reconciliation_periods WHERE account_id = 'GLOBAL' AND period_end > ?1 AND is_locked = 1",
+        params![end_date],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    if existing_after {
+        return Err("Cannot lock: a later period is already locked (would create gap)".to_string());
+    }
+
+    let id = Uuid::new_v4().to_string();
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO reconciliation_periods (id, account_id, period_start, period_end, is_locked, locked_at)
+         VALUES (?1, 'GLOBAL', '0000-01-01', ?2, 1, ?3)",
+        params![id, end_date, now],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn unlock_period_global(
+    db: State<'_, DbState>,
+) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    let latest_id: Option<String> = conn.query_row(
+        "SELECT id FROM reconciliation_periods WHERE account_id = 'GLOBAL' AND is_locked = 1 ORDER BY period_end DESC LIMIT 1",
+        [],
+        |row| row.get(0),
+    ).ok();
+
+    match latest_id {
+        Some(id) => {
+            conn.execute("DELETE FROM reconciliation_periods WHERE id = ?1", params![id])
+                .map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        None => Err("No locked periods to unlock".to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn list_locked_periods_global(
+    db: State<'_, DbState>,
+) -> Result<Vec<LockedPeriod>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare(
+        "SELECT id, period_end, locked_at FROM reconciliation_periods WHERE account_id = 'GLOBAL' AND is_locked = 1 ORDER BY period_end DESC"
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(LockedPeriod {
+            id: row.get(0)?,
+            end_date: row.get(1)?,
+            locked_at: row.get(2)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut periods = Vec::new();
+    for row in rows {
+        periods.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(periods)
 }

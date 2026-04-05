@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api, type AppMetadata, type BackupInfo } from '../lib/api'
+import { PeriodManagement } from './PeriodManagement'
 
 export function SettingsPage({ version }: { version: number }) {
   const [metadata, setMetadata] = useState<AppMetadata | null>(null)
@@ -100,6 +101,11 @@ export function SettingsPage({ version }: { version: number }) {
             <div>Database: <code style={{ fontSize: '12px' }}>{metadata.db_path}</code></div>
           </div>
         )}
+      </section>
+
+      {/* Period Locking */}
+      <section style={{ marginBottom: '32px' }}>
+        <PeriodManagement version={version} />
       </section>
 
       {/* Backup & Restore */}
