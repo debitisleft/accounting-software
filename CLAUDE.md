@@ -1,8 +1,9 @@
 # Bookkeeping App — Claude's Instructions
 
 ## PROJECT GOAL
-Build a double-entry bookkeeping desktop app.
-Stack: Tauri + React + TypeScript + rusqlite (SQLite on disk) + Vitest
+A fully functional double-entry bookkeeping desktop app with 17 phases complete and 75 tests passing. Current feature set: chart of accounts CRUD, journal entry with balance validation, transaction register with inline edit/void, audit trail, period locking, backup/restore with auto-backup, CSV export for all reports, settings/preferences, report drill-downs with account ledger, and print-friendly reports.
+
+Stack: Tauri v2 + React + TypeScript + rusqlite (SQLite on disk) + Vitest
 
 ## HARD RULES — never break these
 - All money is stored as INTEGER CENTS. Never use float for money.
@@ -16,7 +17,7 @@ Stack: Tauri + React + TypeScript + rusqlite (SQLite on disk) + Vitest
 ## YOUR LOOP — follow this every session
 1. Read CLAUDE.md (this file)
 2. Read CHANGELOG.md to understand current state and failed approaches
-3. Read build-todo.md for current phase and unchecked tasks
+3. Read build-todo.md for current status and any remaining tasks
 4. If you need design context for a phase, read build-plan-v2.md
 5. Work through unchecked tasks in order
 6. Run the CHECK command at the end of each phase
@@ -24,7 +25,7 @@ Stack: Tauri + React + TypeScript + rusqlite (SQLite on disk) + Vitest
 8. If check fails → diagnose, fix, re-run check. Log the failure in CHANGELOG.md
 9. Never advance to the next phase until current phase check passes
 
-## NEW COMMAND PATTERN (Phase 9+)
+## COMMAND PATTERN
 Every new feature must be written in 4 places:
 1. Rust function in commands.rs with `#[tauri::command]`
 2. Matching TypeScript function in api.ts
@@ -53,6 +54,19 @@ New pages follow this structure:
 - EQUITY: credit increases, debit decreases
 - REVENUE: credit increases, debit decreases
 - EXPENSE: debit increases, credit decreases
+
+## ERROR HANDLING
+- All api.ts functions call invoke() which can reject — callers must handle failures
+- Components use try/catch in async data-fetching useEffect and set error state
+- Error state renders a visible error message (not silently swallowed)
+- Rust commands return Result<T, String> — errors propagate as rejected promises to TypeScript
+- MockApi methods throw on invalid input (same contract as Rust)
+
+## ACCESSIBILITY
+- Interactive elements (buttons, links, inputs) must be keyboard-navigable
+- Modals and dialogs should trap focus while open
+- Form inputs must have associated labels or aria-label attributes
+- Sidebar navigation supports keyboard nav (Tab, Enter, arrow keys where applicable)
 
 ## GIT RULES
 - Commit after every meaningful unit of work

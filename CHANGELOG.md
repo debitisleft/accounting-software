@@ -2,6 +2,14 @@
 
 ## STATUS: ALL 17 PHASES COMPLETE
 
+## CURRENT STATE (2026-04-05)
+- 17 phases complete, 75 tests passing
+- 30+ Rust commands, full MockApi coverage
+- Features: chart of accounts CRUD, journal entry, transaction register with edit/void, 
+  audit trail, period locking, backup/restore, CSV export, settings/preferences, 
+  report drill-downs with account ledger, print-friendly reports
+- Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
+
 ## COMPLETED
 
 ### Phase 17 — Report Enhancements (2026-04-05)
@@ -233,4 +241,6 @@ Tests    → MockApi (same logic, in-memory JS objects)
 - Dev server startup: 278ms (was ~1400ms with WASM)
 
 ## KNOWN ISSUES
-(none)
+- MockApi tests cover all logic but no integration tests hit the real rusqlite backend yet
+- No accessibility pass done (keyboard nav, focus management, ARIA)
+- Phase 9 final CHECK not explicitly verified in build-todo.md
