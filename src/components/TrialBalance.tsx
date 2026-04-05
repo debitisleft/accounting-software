@@ -1,6 +1,7 @@
-import { useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useDatabase } from '../db/DatabaseProvider'
 import { getTrialBalance } from '../lib/accounting'
+import type { TrialBalance } from '../lib/accounting'
 
 function formatCents(cents: number): string {
   if (cents === 0) return ''
@@ -12,10 +13,11 @@ function formatCents(cents: number): string {
 
 export function TrialBalanceReport() {
   const { db, isLoading, error, version } = useDatabase()
+  const [trialBalance, setTrialBalance] = useState<TrialBalance | null>(null)
 
-  const trialBalance = useMemo(() => {
-    if (!db) return null
-    return getTrialBalance(db)
+  useEffect(() => {
+    if (!db) return
+    getTrialBalance(db).then(setTrialBalance)
   }, [db, version])
 
   if (isLoading) return <div>Loading...</div>
@@ -30,7 +32,7 @@ export function TrialBalanceReport() {
 
       {!isBalanced && (
         <div style={{ padding: '12px', backgroundColor: '#ffe6e6', color: 'red', borderRadius: '4px', marginBottom: '16px', fontWeight: 'bold' }}>
-          ⚠ OUT OF BALANCE — Debits ({formatCents(trialBalance.totalDebit)}) ≠ Credits ({formatCents(trialBalance.totalCredit)})
+          OUT OF BALANCE — Debits ({formatCents(trialBalance.totalDebit)}) != Credits ({formatCents(trialBalance.totalCredit)})
         </div>
       )}
 

@@ -76,6 +76,7 @@
 ## FAILED APPROACHES
 - `npm create tauri-app@latest` fails in non-interactive terminal — use `create-vite` + `tauri init` instead
 - `accounts._.name` Drizzle internal API doesn't exist in drizzle-orm — use `getTableName()` from `drizzle-orm` instead
+- sql.js CJS module cannot be cleanly imported via Vite ESM — replaced with Dexie.js entirely
 
 ### Fix: sql.js WASM loading error (2026-04-05)
 - Copied `sql-wasm.wasm` from `node_modules/sql.js/dist/` to `public/`
@@ -87,6 +88,17 @@
 - Replaced `server.headers` with middleware plugin for COOP/COEP headers (more reliable)
 - Added `include: []` to optimizeDeps to prevent Vite pre-bundling sql.js CJS as ESM
 - Root cause: Vite pre-bundling converted sql.js CJS into broken ESM with no default export
+
+### Fix: Replace sql.js with Dexie.js (2026-04-05)
+- sql.js WASM/ESM issues were unfixable in Vite — replaced entirely with Dexie.js (IndexedDB)
+- Dexie is a proper ESM module, zero WASM config needed, works natively in all browsers
+- Rewrote: db/index.ts (Dexie schema), seed.ts, accounting.ts (all async), DatabaseProvider.tsx
+- Rewrote all 5 UI components for async Dexie API (useEffect + state instead of useMemo)
+- Rewrote all 19 tests using fake-indexeddb for in-memory IndexedDB in Node
+- Removed: browser-connection.ts, migrate.ts, schema.ts, connection.ts, public/sql-wasm.wasm
+- Removed: vite.config.ts WASM/COOP/COEP config (no longer needed)
+- Added tables: auditLog, reconciliationPeriods, categorizationRules (for future phases)
+- Dev server startup: 278ms (was ~1400ms with WASM)
 
 ## KNOWN ISSUES
 (none)

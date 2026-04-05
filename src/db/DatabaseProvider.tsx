@@ -1,10 +1,9 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
-import { createBrowserDatabase } from './browser-connection'
+import { BookkeepingDatabase } from './index'
 import { seedDefaultAccounts } from './seed'
-import type { AppDatabase } from './connection'
 
 interface DatabaseContextValue {
-  db: AppDatabase | null
+  db: BookkeepingDatabase | null
   isLoading: boolean
   error: string | null
   /** Bump this to trigger UI re-renders after mutations */
@@ -21,16 +20,16 @@ const DatabaseContext = createContext<DatabaseContextValue>({
 })
 
 export function DatabaseProvider({ children }: { children: ReactNode }) {
-  const [db, setDb] = useState<AppDatabase | null>(null)
+  const [db, setDb] = useState<BookkeepingDatabase | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
 
   useEffect(() => {
-    createBrowserDatabase()
-      .then(({ db: browserDb }) => {
-        seedDefaultAccounts(browserDb as AppDatabase)
-        setDb(browserDb as AppDatabase)
+    const database = new BookkeepingDatabase()
+    seedDefaultAccounts(database)
+      .then(() => {
+        setDb(database)
         setIsLoading(false)
       })
       .catch((err: Error) => {

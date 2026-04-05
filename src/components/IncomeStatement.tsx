@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useDatabase } from '../db/DatabaseProvider'
 import { getIncomeStatement } from '../lib/accounting'
+import type { IncomeStatement } from '../lib/accounting'
 
 function formatCents(cents: number): string {
   const negative = cents < 0
@@ -15,10 +16,11 @@ export function IncomeStatementReport() {
   const { db, isLoading, error, version } = useDatabase()
   const [startDate, setStartDate] = useState('2026-01-01')
   const [endDate, setEndDate] = useState('2026-12-31')
+  const [report, setReport] = useState<IncomeStatement | null>(null)
 
-  const report = useMemo(() => {
-    if (!db) return null
-    return getIncomeStatement(db, startDate, endDate)
+  useEffect(() => {
+    if (!db) return
+    getIncomeStatement(db, startDate, endDate).then(setReport)
   }, [db, version, startDate, endDate])
 
   if (isLoading) return <div>Loading...</div>

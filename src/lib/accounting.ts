@@ -1,6 +1,4 @@
-import { eq, and, gte, lte, sql } from 'drizzle-orm'
-import { accounts, transactions, journalEntries, type AccountType } from '../db/schema'
-import type { AppDatabase } from '../db/connection'
+import type { BookkeepingDatabase, AccountType, Account, JournalEntry } from '../db/index'
 
 // ── Types ────────────────────────────────────────────────
 
@@ -80,17 +78,53 @@ function isDebitNormal(type: AccountType): boolean {
   return type === 'ASSET' || type === 'EXPENSE'
 }
 
-// ── Core Functions ───────────────────────────────────────
+/** Sum debit/credit for entries matching an account, optionally filtered by txIds */
+function sumEntries(
+  entries: JournalEntry[],
+  accountId: number,
+  txIds?: Set<number>,
+): { totalDebit: number; totalCredit: number } {
+  let totalDebit = 0
+  let totalCredit = 0
+  for (const e of entries) {
+    if (e.accountId !== accountId) continue
+    if (txIds && !txIds.has(e.transactionId)) continue
+    totalDebit += e.debit
+    totalCredit += e.credit
+  }
+  return { totalDebit, totalCredit }
+}
+
+/** Compute balance for an account given entries */
+function computeBalance(
+  account: Account,
+  entries: JournalEntry[],
+  txIds?: Set<number>,
+): AccountBalance {
+  const { totalDebit, totalCredit } = sumEntries(entries, account.id!, txIds)
+  const balance = isDebitNormal(account.type)
+    ? totalDebit - totalCredit
+    : totalCredit - totalDebit
+  return {
+    accountId: account.id!,
+    code: account.code,
+    name: account.name,
+    type: account.type,
+    balance,
+  }
+}
+
+// ── Core Functions ─���─────────────────────────────────────
 
 /**
  * Creates a transaction with journal entries.
  * Enforces: SUM(debit) === SUM(credit) — throws UnbalancedTransactionError if not.
  * All amounts must be non-negative integer cents.
  */
-export function createTransaction(
-  db: AppDatabase,
+export async function createTransaction(
+  database: BookkeepingDatabase,
   input: CreateTransactionInput,
-): number {
+): Promise<number> {
   const totalDebit = input.entries.reduce((sum, e) => sum + e.debit, 0)
   const totalCredit = input.entries.reduce((sum, e) => sum + e.credit, 0)
 
@@ -102,24 +136,23 @@ export function createTransaction(
     throw new Error('Transaction must have non-zero amounts')
   }
 
-  const tx = db.insert(transactions)
-    .values({ date: input.date, description: input.description })
-    .returning()
-    .get()
+  const txId = await database.transactions.add({
+    date: input.date,
+    description: input.description,
+    createdAt: Date.now(),
+  })
 
-  for (const entry of input.entries) {
-    db.insert(journalEntries)
-      .values({
-        transactionId: tx.id,
-        accountId: entry.accountId,
-        debit: entry.debit,
-        credit: entry.credit,
-        memo: entry.memo,
-      })
-      .run()
-  }
+  await database.journalEntries.bulkAdd(
+    input.entries.map((entry) => ({
+      transactionId: txId,
+      accountId: entry.accountId,
+      debit: entry.debit,
+      credit: entry.credit,
+      memo: entry.memo,
+    })),
+  )
 
-  return tx.id
+  return txId
 }
 
 /**
@@ -127,33 +160,27 @@ export function createTransaction(
  * ASSET/EXPENSE: balance = SUM(debit) - SUM(credit)
  * LIABILITY/EQUITY/REVENUE: balance = SUM(credit) - SUM(debit)
  */
-export function getAccountBalance(
-  db: AppDatabase,
+export async function getAccountBalance(
+  database: BookkeepingDatabase,
   accountId: number,
-): AccountBalance {
-  const account = db.select().from(accounts).where(eq(accounts.id, accountId)).get()
+): Promise<AccountBalance> {
+  const account = await database.accounts.get(accountId)
   if (!account) {
     throw new Error(`Account not found: ${accountId}`)
   }
 
-  const result = db
-    .select({
-      totalDebit: sql<number>`COALESCE(SUM(${journalEntries.debit}), 0)`,
-      totalCredit: sql<number>`COALESCE(SUM(${journalEntries.credit}), 0)`,
-    })
-    .from(journalEntries)
-    .where(eq(journalEntries.accountId, accountId))
-    .get()
+  const entries = await database.journalEntries
+    .where('accountId')
+    .equals(accountId)
+    .toArray()
 
-  const totalDebit = result?.totalDebit ?? 0
-  const totalCredit = result?.totalCredit ?? 0
-
+  const { totalDebit, totalCredit } = sumEntries(entries, accountId)
   const balance = isDebitNormal(account.type)
     ? totalDebit - totalCredit
     : totalCredit - totalDebit
 
   return {
-    accountId: account.id,
+    accountId: account.id!,
     code: account.code,
     name: account.name,
     type: account.type,
@@ -165,36 +192,25 @@ export function getAccountBalance(
  * Returns a trial balance: all accounts with their total debits and credits.
  * totalDebit must equal totalCredit if books are balanced.
  */
-export function getTrialBalance(db: AppDatabase): TrialBalance {
-  const allAccounts = db.select().from(accounts).all()
+export async function getTrialBalance(
+  database: BookkeepingDatabase,
+): Promise<TrialBalance> {
+  const allAccounts = await database.accounts.toArray()
+  const allEntries = await database.journalEntries.toArray()
 
-  const rows: TrialBalanceRow[] = allAccounts.map((account) => {
-    const result = db
-      .select({
-        totalDebit: sql<number>`COALESCE(SUM(${journalEntries.debit}), 0)`,
-        totalCredit: sql<number>`COALESCE(SUM(${journalEntries.credit}), 0)`,
-      })
-      .from(journalEntries)
-      .where(eq(journalEntries.accountId, account.id))
-      .get()
-
-    const totalDebit = result?.totalDebit ?? 0
-    const totalCredit = result?.totalCredit ?? 0
-
-    // Trial balance shows the normal balance in the appropriate column
-    const netBalance = isDebitNormal(account.type)
-      ? totalDebit - totalCredit
-      : totalCredit - totalDebit
-
-    return {
-      accountId: account.id,
-      code: account.code,
-      name: account.name,
-      type: account.type,
-      debit: isDebitNormal(account.type) ? netBalance : 0,
-      credit: !isDebitNormal(account.type) ? netBalance : 0,
-    }
-  }).filter((row) => row.debit !== 0 || row.credit !== 0)
+  const rows: TrialBalanceRow[] = allAccounts
+    .map((account) => {
+      const bal = computeBalance(account, allEntries)
+      return {
+        accountId: account.id!,
+        code: account.code,
+        name: account.name,
+        type: account.type,
+        debit: isDebitNormal(account.type) ? bal.balance : 0,
+        credit: !isDebitNormal(account.type) ? bal.balance : 0,
+      }
+    })
+    .filter((row) => row.debit !== 0 || row.credit !== 0)
 
   const totalDebit = rows.reduce((sum, r) => sum + r.debit, 0)
   const totalCredit = rows.reduce((sum, r) => sum + r.credit, 0)
@@ -207,64 +223,31 @@ export function getTrialBalance(db: AppDatabase): TrialBalance {
  * Revenue - Expenses = Net Income.
  * Only includes journal entries from transactions within the date range.
  */
-export function getIncomeStatement(
-  db: AppDatabase,
+export async function getIncomeStatement(
+  database: BookkeepingDatabase,
   startDate: string,
   endDate: string,
-): IncomeStatement {
-  // Get all transactions in range
-  const txInRange = db
-    .select({ id: transactions.id })
-    .from(transactions)
-    .where(and(gte(transactions.date, startDate), lte(transactions.date, endDate)))
-    .all()
-    .map((t) => t.id)
+): Promise<IncomeStatement> {
+  const txInRange = await database.transactions
+    .where('date')
+    .between(startDate, endDate, true, true)
+    .toArray()
+  const txIds = new Set(txInRange.map((t) => t.id!))
 
-  const revenueAccounts = db.select().from(accounts).where(eq(accounts.type, 'REVENUE')).all()
-  const expenseAccounts = db.select().from(accounts).where(eq(accounts.type, 'EXPENSE')).all()
+  const allEntries = await database.journalEntries.toArray()
+  const allAccounts = await database.accounts.toArray()
 
-  function getBalancesForAccounts(
-    accountList: typeof revenueAccounts,
-    txIds: number[],
-  ): AccountBalance[] {
-    return accountList.map((account) => {
-      if (txIds.length === 0) {
-        return { accountId: account.id, code: account.code, name: account.name, type: account.type, balance: 0 }
-      }
+  const revenueAccounts = allAccounts.filter((a) => a.type === 'REVENUE')
+  const expenseAccounts = allAccounts.filter((a) => a.type === 'EXPENSE')
 
-      const result = db
-        .select({
-          totalDebit: sql<number>`COALESCE(SUM(${journalEntries.debit}), 0)`,
-          totalCredit: sql<number>`COALESCE(SUM(${journalEntries.credit}), 0)`,
-        })
-        .from(journalEntries)
-        .where(
-          and(
-            eq(journalEntries.accountId, account.id),
-            sql`${journalEntries.transactionId} IN (${sql.join(txIds.map((id) => sql`${id}`), sql`, `)})`,
-          ),
-        )
-        .get()
-
-      const totalDebit = result?.totalDebit ?? 0
-      const totalCredit = result?.totalCredit ?? 0
-
-      const balance = isDebitNormal(account.type)
-        ? totalDebit - totalCredit
-        : totalCredit - totalDebit
-
-      return {
-        accountId: account.id,
-        code: account.code,
-        name: account.name,
-        type: account.type,
-        balance,
-      }
-    }).filter((a) => a.balance !== 0)
+  function getBalances(accountList: Account[]): AccountBalance[] {
+    return accountList
+      .map((account) => computeBalance(account, allEntries, txIds))
+      .filter((a) => a.balance !== 0)
   }
 
-  const revenueBalances = getBalancesForAccounts(revenueAccounts, txInRange)
-  const expenseBalances = getBalancesForAccounts(expenseAccounts, txInRange)
+  const revenueBalances = getBalances(revenueAccounts)
+  const expenseBalances = getBalances(expenseAccounts)
 
   const totalRevenue = revenueBalances.reduce((sum, a) => sum + a.balance, 0)
   const totalExpenses = expenseBalances.reduce((sum, a) => sum + a.balance, 0)
@@ -282,62 +265,30 @@ export function getIncomeStatement(
  * Returns a balance sheet as of a given date.
  * Assets = Liabilities + Equity (includes retained earnings from revenue/expenses).
  */
-export function getBalanceSheet(
-  db: AppDatabase,
+export async function getBalanceSheet(
+  database: BookkeepingDatabase,
   asOfDate: string,
-): BalanceSheet {
-  // Get all transactions up to and including asOfDate
-  const txUpToDate = db
-    .select({ id: transactions.id })
-    .from(transactions)
-    .where(lte(transactions.date, asOfDate))
-    .all()
-    .map((t) => t.id)
+): Promise<BalanceSheet> {
+  const txUpToDate = await database.transactions
+    .where('date')
+    .belowOrEqual(asOfDate)
+    .toArray()
+  const txIds = new Set(txUpToDate.map((t) => t.id!))
+
+  const allEntries = await database.journalEntries.toArray()
+  const allAccounts = await database.accounts.toArray()
 
   function getBalancesForType(type: AccountType): AccountBalance[] {
-    const accts = db.select().from(accounts).where(eq(accounts.type, type)).all()
-
-    return accts.map((account) => {
-      if (txUpToDate.length === 0) {
-        return { accountId: account.id, code: account.code, name: account.name, type: account.type, balance: 0 }
-      }
-
-      const result = db
-        .select({
-          totalDebit: sql<number>`COALESCE(SUM(${journalEntries.debit}), 0)`,
-          totalCredit: sql<number>`COALESCE(SUM(${journalEntries.credit}), 0)`,
-        })
-        .from(journalEntries)
-        .where(
-          and(
-            eq(journalEntries.accountId, account.id),
-            sql`${journalEntries.transactionId} IN (${sql.join(txUpToDate.map((id) => sql`${id}`), sql`, `)})`,
-          ),
-        )
-        .get()
-
-      const totalDebit = result?.totalDebit ?? 0
-      const totalCredit = result?.totalCredit ?? 0
-
-      const balance = isDebitNormal(account.type)
-        ? totalDebit - totalCredit
-        : totalCredit - totalDebit
-
-      return {
-        accountId: account.id,
-        code: account.code,
-        name: account.name,
-        type: account.type,
-        balance,
-      }
-    }).filter((a) => a.balance !== 0)
+    return allAccounts
+      .filter((a) => a.type === type)
+      .map((account) => computeBalance(account, allEntries, txIds))
+      .filter((a) => a.balance !== 0)
   }
 
   const assetBalances = getBalancesForType('ASSET')
   const liabilityBalances = getBalancesForType('LIABILITY')
   const equityBalances = getBalancesForType('EQUITY')
 
-  // Net income from revenue and expenses goes into equity side
   const revenueBalances = getBalancesForType('REVENUE')
   const expenseBalances = getBalancesForType('EXPENSE')
   const netIncome =

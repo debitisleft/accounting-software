@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useDatabase } from '../db/DatabaseProvider'
 import { getBalanceSheet } from '../lib/accounting'
+import type { BalanceSheet } from '../lib/accounting'
 
 function formatCents(cents: number): string {
   const negative = cents < 0
@@ -14,10 +15,11 @@ function formatCents(cents: number): string {
 export function BalanceSheetReport() {
   const { db, isLoading, error, version } = useDatabase()
   const [asOfDate, setAsOfDate] = useState('2026-12-31')
+  const [report, setReport] = useState<BalanceSheet | null>(null)
 
-  const report = useMemo(() => {
-    if (!db) return null
-    return getBalanceSheet(db, asOfDate)
+  useEffect(() => {
+    if (!db) return
+    getBalanceSheet(db, asOfDate).then(setReport)
   }, [db, version, asOfDate])
 
   if (isLoading) return <div>Loading...</div>
@@ -37,7 +39,7 @@ export function BalanceSheetReport() {
 
       {!report.isBalanced && (
         <div style={{ padding: '12px', backgroundColor: '#ffe6e6', color: 'red', borderRadius: '4px', marginBottom: '16px', fontWeight: 'bold' }}>
-          ⚠ OUT OF BALANCE — Assets ({formatCents(report.assets.total)}) ≠ Liabilities + Equity ({formatCents(report.liabilities.total + report.equity.total)})
+          OUT OF BALANCE — Assets ({formatCents(report.assets.total)}) != Liabilities + Equity ({formatCents(report.liabilities.total + report.equity.total)})
         </div>
       )}
 
@@ -117,7 +119,7 @@ export function BalanceSheetReport() {
       >
         {report.isBalanced
           ? `Assets (${formatCents(report.assets.total)}) = Liabilities (${formatCents(report.liabilities.total)}) + Equity (${formatCents(report.equity.total)})`
-          : `OUT OF BALANCE: ${formatCents(report.assets.total)} ≠ ${formatCents(report.liabilities.total + report.equity.total)}`}
+          : `OUT OF BALANCE: ${formatCents(report.assets.total)} != ${formatCents(report.liabilities.total + report.equity.total)}`}
       </div>
     </div>
   )

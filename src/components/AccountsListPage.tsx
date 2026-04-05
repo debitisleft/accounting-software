@@ -1,6 +1,5 @@
-import { useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useDatabase } from '../db/DatabaseProvider'
-import { accounts } from '../db/schema'
 import { getAccountBalance } from '../lib/accounting'
 import type { AccountBalance } from '../lib/accounting'
 
@@ -16,11 +15,17 @@ function formatCents(cents: number): string {
 
 export function AccountsListPage() {
   const { db, isLoading, error, version } = useDatabase()
+  const [balances, setBalances] = useState<AccountBalance[]>([])
 
-  const balances = useMemo((): AccountBalance[] => {
-    if (!db) return []
-    const allAccounts = db.select().from(accounts).all()
-    return allAccounts.map((acct) => getAccountBalance(db, acct.id))
+  useEffect(() => {
+    if (!db) return
+    ;(async () => {
+      const allAccounts = await db.accounts.toArray()
+      const results = await Promise.all(
+        allAccounts.map((acct) => getAccountBalance(db, acct.id!)),
+      )
+      setBalances(results)
+    })()
   }, [db, version])
 
   if (isLoading) return <div>Loading database...</div>

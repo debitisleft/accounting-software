@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useDatabase } from '../db/DatabaseProvider'
-import { accounts } from '../db/schema'
 import { createTransaction } from '../lib/accounting'
+import type { Account } from '../db/index'
 
 interface EntryRow {
   accountId: string
@@ -30,10 +30,11 @@ export function JournalEntryForm() {
   const [description, setDescription] = useState('')
   const [rows, setRows] = useState<EntryRow[]>([emptyRow(), emptyRow()])
   const [saveMessage, setSaveMessage] = useState('')
+  const [accountList, setAccountList] = useState<Account[]>([])
 
-  const accountList = useMemo(() => {
-    if (!db) return []
-    return db.select().from(accounts).all()
+  useEffect(() => {
+    if (!db) return
+    db.accounts.toArray().then(setAccountList)
   }, [db, version])
 
   const totalDebit = rows.reduce((sum, r) => sum + dollarsToCents(r.debitDollars), 0)
@@ -53,7 +54,7 @@ export function JournalEntryForm() {
     setRows((prev) => prev.filter((_, i) => i !== index))
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!db || !canSave) return
 
     const entries = rows
@@ -66,7 +67,7 @@ export function JournalEntryForm() {
       }))
 
     try {
-      const txId = createTransaction(db, {
+      const txId = await createTransaction(db, {
         date,
         description: description.trim(),
         entries,

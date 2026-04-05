@@ -1,5 +1,4 @@
-import { accounts, type AccountType } from './schema'
-import type { AppDatabase } from './connection'
+import type { BookkeepingDatabase, AccountType } from './index'
 
 interface SeedAccount {
   code: string
@@ -45,15 +44,20 @@ const defaultAccounts: SeedAccount[] = [
   { code: '5600', name: 'Insurance Expense', type: 'EXPENSE' },
 ]
 
-export function seedDefaultAccounts(db: AppDatabase): number {
-  const existing = db.select().from(accounts).all()
-  if (existing.length > 0) {
-    return existing.length
+export async function seedDefaultAccounts(database: BookkeepingDatabase): Promise<number> {
+  const existing = await database.accounts.count()
+  if (existing > 0) {
+    return existing
   }
 
-  for (const acct of defaultAccounts) {
-    db.insert(accounts).values(acct).run()
-  }
+  const now = Date.now()
+  await database.accounts.bulkAdd(
+    defaultAccounts.map((acct) => ({
+      ...acct,
+      isActive: 1,
+      createdAt: now,
+    })),
+  )
 
   return defaultAccounts.length
 }
