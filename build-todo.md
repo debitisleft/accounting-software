@@ -58,14 +58,14 @@
 - [x] CHECK: Reports render with seeded/test data without crashing
 
 ## PHASE 7 — Final Integration Check
-- [ ] Enter 5 real-world transactions (sales, expense, owner equity, bill payment, bank deposit)
-- [ ] Verify trial balance balances
-- [ ] Verify balance sheet equation holds
-- [ ] Verify income statement net income matches equity change
-- [ ] CHECK: No TypeScript errors (`npx tsc --noEmit`)
-- [ ] CHECK: All Vitest tests still passing
+- [x] Enter 5 real-world transactions (sales, expense, owner equity, bill payment, bank deposit)
+- [x] Verify trial balance balances
+- [x] Verify balance sheet equation holds
+- [x] Verify income statement net income matches equity change
+- [x] CHECK: No TypeScript errors (`npx tsc --noEmit`)
+- [x] CHECK: All Vitest tests still passing
 
 ---
-## CURRENT PHASE: 7
-## LAST COMPLETED CHECK: Phase 6 — all 3 reports render, 14 tests pass (2026-04-05)
+## CURRENT PHASE: COMPLETE
+## LAST COMPLETED CHECK: Phase 7 — 19 tests pass, all integration checks verified (2026-04-05)
 ## BLOCKING ISSUES: None

@@ -1,8 +1,21 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 6 — Complete
+## STATUS: ALL PHASES COMPLETE
 
 ## COMPLETED
+
+### Phase 7 — Final Integration Check (2026-04-05)
+- Created `src/__tests__/integration.test.ts` with 5 real-world transactions:
+  1. Owner invests $10,000 cash (EQUITY → ASSET)
+  2. Cash sale of goods $2,500 (REVENUE → ASSET)
+  3. Pay rent $1,200 (ASSET → EXPENSE)
+  4. Receive repair bill $800 on credit (LIABILITY → EXPENSE)
+  5. Bank deposit from customer $3,000 (REVENUE → ASSET)
+- Verified: trial balance debits === credits ($17,500)
+- Verified: balance sheet A ($14,300) = L ($800) + E ($13,500) ✓
+- Verified: income statement net income ($3,500) matches equity change
+- Verified: all amounts are integer cents (no floating point)
+- 19 total tests, all passing, zero TypeScript errors
 
 ### Phase 6 — Reports (2026-04-05)
 - Created `src/components/TrialBalance.tsx` — all accounts with debit/credit columns, totals
