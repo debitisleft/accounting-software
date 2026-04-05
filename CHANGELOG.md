@@ -1,8 +1,17 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 2 — Complete
+## STATUS: Phase 3 — Complete
 
 ## COMPLETED
+
+### Phase 3 — Accounting Engine (2026-04-05)
+- Created `src/lib/accounting.ts` with 5 core functions
+- `createTransaction()`: validates SUM(debit) === SUM(credit), throws typed `UnbalancedTransactionError`
+- `getAccountBalance()`: respects normal balance side (ASSET/EXPENSE = debit, LIABILITY/EQUITY/REVENUE = credit)
+- `getTrialBalance()`: all accounts with debit/credit columns, filtered to non-zero
+- `getIncomeStatement(start, end)`: revenue - expenses = net income for date range
+- `getBalanceSheet(asOfDate)`: assets = liabilities + equity (includes net income in equity)
+- All amounts INTEGER cents, all functions strongly typed, no `any`
 
 ### Phase 2 — Database Schema (2026-04-05)
 - Created `src/db/schema.ts` with accounts, transactions, journal_entries tables using Drizzle ORM

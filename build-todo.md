@@ -25,13 +25,13 @@
 - [x] CHECK: Query seeded accounts — confirm at least 20 default accounts exist
 
 ## PHASE 3 — Accounting Engine
-- [ ] Create /src/lib/accounting.ts
-- [ ] Implement createTransaction() with balance validation
-- [ ] Implement getAccountBalance() respecting normal balance side
-- [ ] Implement getTrialBalance()
-- [ ] Implement getIncomeStatement(startDate, endDate)
-- [ ] Implement getBalanceSheet(asOfDate)
-- [ ] CHECK: All functions exported and typed with no TypeScript errors
+- [x] Create /src/lib/accounting.ts
+- [x] Implement createTransaction() with balance validation
+- [x] Implement getAccountBalance() respecting normal balance side
+- [x] Implement getTrialBalance()
+- [x] Implement getIncomeStatement(startDate, endDate)
+- [x] Implement getBalanceSheet(asOfDate)
+- [x] CHECK: All functions exported and typed with no TypeScript errors
 
 ## PHASE 4 — Engine Unit Tests
 - [ ] Write test: balanced transaction saves successfully
@@ -66,6 +66,6 @@
 - [ ] CHECK: All Vitest tests still passing
 
 ---
-## CURRENT PHASE: 3
-## LAST COMPLETED CHECK: Phase 2 — 7 tests pass, 26 seeded accounts, all INTEGER cents (2026-04-05)
+## CURRENT PHASE: 4
+## LAST COMPLETED CHECK: Phase 3 — all functions typed, tsc --noEmit clean (2026-04-05)
 ## BLOCKING ISSUES: None
