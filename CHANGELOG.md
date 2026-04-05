@@ -1,8 +1,19 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 10 Complete — working on Phase 11
+## STATUS: Phase 11 Complete — working on Phase 12
 
 ## COMPLETED
+
+### Phase 11 — Transaction Register (2026-04-05)
+- Added 3 Rust commands: list_transactions (pagination + filters), get_transaction_detail, count_transactions
+- Added is_void and void_of columns to transactions table (migration pattern in db.rs)
+- Updated TransactionWithEntries struct to include is_void/void_of in Rust, api.ts, MockApi
+- list_transactions supports: date range, account filter, case-insensitive memo search, offset/limit pagination
+- Created TransactionRegister.tsx: table with expand-to-see-entries, filter bar, pagination, VOID badges
+- Multi-entry transactions show "primary account (split N)" collapsed, click to expand
+- All 3 commands in api.ts + MockApi with full type coverage
+- 8 new tests: pagination, date filter, account filter, memo search, void flag, detail, count
+- 41 total tests pass, typecheck clean
 
 ### Phase 10 — Account Management CRUD (2026-04-05)
 - Added 4 Rust commands: create_account, update_account, deactivate_account, reactivate_account

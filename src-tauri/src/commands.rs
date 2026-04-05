@@ -29,7 +29,7 @@ pub struct JournalEntryInput {
     pub memo: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct JournalEntryOutput {
     pub id: String,
     pub transaction_id: String,
@@ -39,13 +39,15 @@ pub struct JournalEntryOutput {
     pub memo: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct TransactionWithEntries {
     pub id: String,
     pub date: String,
     pub description: String,
     pub reference: Option<String>,
     pub is_locked: i64,
+    pub is_void: i64,
+    pub void_of: Option<String>,
     pub created_at: i64,
     pub entries: Vec<JournalEntryOutput>,
 }
@@ -464,7 +466,7 @@ pub async fn get_transactions(
         format!(" WHERE {}", where_clauses.join(" AND "))
     };
 
-    let query = format!("SELECT id, date, description, reference, is_locked, created_at FROM transactions{} ORDER BY date DESC, created_at DESC", where_sql);
+    let query = format!("SELECT id, date, description, reference, is_locked, created_at, is_void, void_of FROM transactions{} ORDER BY date DESC, created_at DESC", where_sql);
     let mut stmt = conn.prepare(&query).map_err(|e| e.to_string())?;
 
     let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|b| b.as_ref()).collect();
@@ -477,6 +479,8 @@ pub async fn get_transactions(
             reference: row.get(3)?,
             is_locked: row.get(4)?,
             created_at: row.get(5)?,
+            is_void: row.get(6)?,
+            void_of: row.get(7)?,
             entries: Vec::new(),
         })
     }).map_err(|e| e.to_string())?;
@@ -673,7 +677,7 @@ pub async fn get_dashboard_summary(db: State<'_, DbState>) -> Result<DashboardSu
 
     // Recent 10 transactions
     let mut tx_stmt = conn.prepare(
-        "SELECT id, date, description, reference, is_locked, created_at FROM transactions ORDER BY date DESC, created_at DESC LIMIT 10"
+        "SELECT id, date, description, reference, is_locked, created_at, is_void, void_of FROM transactions ORDER BY date DESC, created_at DESC LIMIT 10"
     ).map_err(|e| e.to_string())?;
 
     let tx_rows = tx_stmt.query_map([], |row| {
@@ -684,6 +688,8 @@ pub async fn get_dashboard_summary(db: State<'_, DbState>) -> Result<DashboardSu
             reference: row.get(3)?,
             is_locked: row.get(4)?,
             created_at: row.get(5)?,
+            is_void: row.get(6)?,
+            void_of: row.get(7)?,
             entries: Vec::new(),
         })
     }).map_err(|e| e.to_string())?;
@@ -872,4 +878,185 @@ pub async fn reactivate_account(
     ).map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+// ── Phase 11: Transaction Register ───────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct ListTransactionsResult {
+    pub transactions: Vec<TransactionWithEntries>,
+    pub total: i64,
+}
+
+fn build_tx_with_entries(conn: &rusqlite::Connection, tx: &mut TransactionWithEntries) -> Result<(), String> {
+    let mut entry_stmt = conn.prepare(
+        "SELECT id, transaction_id, account_id, debit, credit, memo FROM journal_entries WHERE transaction_id = ?1"
+    ).map_err(|e| e.to_string())?;
+    let entries = entry_stmt.query_map(params![tx.id], |row| {
+        Ok(JournalEntryOutput {
+            id: row.get(0)?,
+            transaction_id: row.get(1)?,
+            account_id: row.get(2)?,
+            debit: row.get(3)?,
+            credit: row.get(4)?,
+            memo: row.get(5)?,
+        })
+    }).map_err(|e| e.to_string())?;
+    for entry in entries {
+        tx.entries.push(entry.map_err(|e| e.to_string())?);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_transactions(
+    db: State<'_, DbState>,
+    offset: Option<i64>,
+    limit: Option<i64>,
+    start_date: Option<String>,
+    end_date: Option<String>,
+    account_id: Option<String>,
+    memo_search: Option<String>,
+) -> Result<ListTransactionsResult, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    let mut where_clauses: Vec<String> = Vec::new();
+    let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    let mut idx = 1;
+
+    if let Some(ref sd) = start_date {
+        where_clauses.push(format!("t.date >= ?{}", idx)); idx += 1;
+        param_values.push(Box::new(sd.clone()));
+    }
+    if let Some(ref ed) = end_date {
+        where_clauses.push(format!("t.date <= ?{}", idx)); idx += 1;
+        param_values.push(Box::new(ed.clone()));
+    }
+    if let Some(ref aid) = account_id {
+        where_clauses.push(format!("t.id IN (SELECT transaction_id FROM journal_entries WHERE account_id = ?{})", idx)); idx += 1;
+        param_values.push(Box::new(aid.clone()));
+    }
+    if let Some(ref memo) = memo_search {
+        where_clauses.push(format!("LOWER(t.description) LIKE ?{}", idx)); idx += 1;
+        param_values.push(Box::new(format!("%{}%", memo.to_lowercase())));
+    }
+
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", where_clauses.join(" AND "))
+    };
+
+    // Count total
+    let count_query = format!("SELECT COUNT(*) FROM transactions t{}", where_sql);
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|b| b.as_ref()).collect();
+    let total: i64 = conn.query_row(&count_query, params_refs.as_slice(), |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    // Fetch page
+    let lim = limit.unwrap_or(50);
+    let off = offset.unwrap_or(0);
+    let data_query = format!(
+        "SELECT id, date, description, reference, is_locked, created_at, is_void, void_of FROM transactions t{} ORDER BY t.date DESC, t.created_at DESC LIMIT {} OFFSET {}",
+        where_sql, lim, off
+    );
+
+    let mut stmt = conn.prepare(&data_query).map_err(|e| e.to_string())?;
+    let tx_rows = stmt.query_map(params_refs.as_slice(), |row| {
+        Ok(TransactionWithEntries {
+            id: row.get(0)?,
+            date: row.get(1)?,
+            description: row.get(2)?,
+            reference: row.get(3)?,
+            is_locked: row.get(4)?,
+            created_at: row.get(5)?,
+            is_void: row.get(6)?,
+            void_of: row.get(7)?,
+            entries: Vec::new(),
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut transactions = Vec::new();
+    for tx in tx_rows {
+        let mut t = tx.map_err(|e| e.to_string())?;
+        build_tx_with_entries(&conn, &mut t)?;
+        transactions.push(t);
+    }
+
+    Ok(ListTransactionsResult { transactions, total })
+}
+
+#[tauri::command]
+pub async fn get_transaction_detail(
+    db: State<'_, DbState>,
+    transaction_id: String,
+) -> Result<TransactionWithEntries, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    let mut tx = conn.query_row(
+        "SELECT id, date, description, reference, is_locked, created_at, is_void, void_of FROM transactions WHERE id = ?1",
+        params![transaction_id],
+        |row| {
+            Ok(TransactionWithEntries {
+                id: row.get(0)?,
+                date: row.get(1)?,
+                description: row.get(2)?,
+                reference: row.get(3)?,
+                is_locked: row.get(4)?,
+                created_at: row.get(5)?,
+                is_void: row.get(6)?,
+                void_of: row.get(7)?,
+                entries: Vec::new(),
+            })
+        },
+    ).map_err(|_| format!("Transaction not found: {}", transaction_id))?;
+
+    build_tx_with_entries(&conn, &mut tx)?;
+    Ok(tx)
+}
+
+#[tauri::command]
+pub async fn count_transactions(
+    db: State<'_, DbState>,
+    start_date: Option<String>,
+    end_date: Option<String>,
+    account_id: Option<String>,
+    memo_search: Option<String>,
+) -> Result<i64, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    let mut where_clauses: Vec<String> = Vec::new();
+    let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+    let mut idx = 1;
+
+    if let Some(ref sd) = start_date {
+        where_clauses.push(format!("t.date >= ?{}", idx)); idx += 1;
+        param_values.push(Box::new(sd.clone()));
+    }
+    if let Some(ref ed) = end_date {
+        where_clauses.push(format!("t.date <= ?{}", idx)); idx += 1;
+        param_values.push(Box::new(ed.clone()));
+    }
+    if let Some(ref aid) = account_id {
+        where_clauses.push(format!("t.id IN (SELECT transaction_id FROM journal_entries WHERE account_id = ?{})", idx)); idx += 1;
+        param_values.push(Box::new(aid.clone()));
+    }
+    if let Some(ref memo) = memo_search {
+        where_clauses.push(format!("LOWER(t.description) LIKE ?{}", idx));
+        let _ = idx; // suppress unused warning
+        param_values.push(Box::new(format!("%{}%", memo.to_lowercase())));
+    }
+
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", where_clauses.join(" AND "))
+    };
+
+    let query = format!("SELECT COUNT(*) FROM transactions t{}", where_sql);
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|b| b.as_ref()).collect();
+    let count: i64 = conn.query_row(&query, params_refs.as_slice(), |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    Ok(count)
 }

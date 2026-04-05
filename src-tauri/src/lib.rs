@@ -56,6 +56,9 @@ pub fn run() {
             commands::update_account,
             commands::deactivate_account,
             commands::reactivate_account,
+            commands::list_transactions,
+            commands::get_transaction_detail,
+            commands::count_transactions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

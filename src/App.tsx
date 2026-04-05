@@ -6,6 +6,7 @@ import { JournalEntryForm } from './components/JournalEntryForm'
 import { TrialBalanceReport } from './components/TrialBalance'
 import { IncomeStatementReport } from './components/IncomeStatement'
 import { BalanceSheetReport } from './components/BalanceSheet'
+import { TransactionRegister } from './components/TransactionRegister'
 
 function App() {
   const [page, setPage] = useState<Page>('dashboard')
@@ -18,11 +19,7 @@ function App() {
       {page === 'dashboard' && <Dashboard version={version} />}
       {page === 'accounts' && <AccountsListPage version={version} />}
       {page === 'journal' && <JournalEntryForm version={version} onSaved={refresh} />}
-      {page === 'register' && (
-        <div style={{ padding: '20px' }}>
-          <p>Transaction Register — coming in Phase 11.</p>
-        </div>
-      )}
+      {page === 'register' && <TransactionRegister version={version} />}
       {page === 'trial-balance' && <TrialBalanceReport version={version} />}
       {page === 'income-statement' && <IncomeStatementReport version={version} />}
       {page === 'balance-sheet' && <BalanceSheetReport version={version} />}

@@ -35,8 +35,24 @@ export interface TransactionWithEntries {
   description: string
   reference: string | null
   is_locked: number
+  is_void: number
+  void_of: string | null
   created_at: number
   entries: JournalEntryOutput[]
+}
+
+export interface ListTransactionsResult {
+  transactions: TransactionWithEntries[]
+  total: number
+}
+
+export interface ListTransactionsFilters {
+  offset?: number
+  limit?: number
+  start_date?: string
+  end_date?: string
+  account_id?: string
+  memo_search?: string
 }
 
 export interface AccountBalanceRow {
@@ -199,4 +215,25 @@ export const api = {
 
   reactivateAccount: (accountId: string) =>
     invoke<void>('reactivate_account', { accountId }),
+
+  listTransactions: (filters?: ListTransactionsFilters) =>
+    invoke<ListTransactionsResult>('list_transactions', {
+      offset: filters?.offset ?? null,
+      limit: filters?.limit ?? null,
+      startDate: filters?.start_date ?? null,
+      endDate: filters?.end_date ?? null,
+      accountId: filters?.account_id ?? null,
+      memoSearch: filters?.memo_search ?? null,
+    }),
+
+  getTransactionDetail: (transactionId: string) =>
+    invoke<TransactionWithEntries>('get_transaction_detail', { transactionId }),
+
+  countTransactions: (filters?: ListTransactionsFilters) =>
+    invoke<number>('count_transactions', {
+      startDate: filters?.start_date ?? null,
+      endDate: filters?.end_date ?? null,
+      accountId: filters?.account_id ?? null,
+      memoSearch: filters?.memo_search ?? null,
+    }),
 }

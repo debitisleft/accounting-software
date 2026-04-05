@@ -83,6 +83,19 @@ fn create_tables(conn: &Connection) -> Result<()> {
         );
         "
     )?;
+
+    // Migration: add is_void and void_of columns if not present
+    let cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(transactions)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>>>()?;
+    if !cols.iter().any(|c| c == "is_void") {
+        conn.execute_batch("ALTER TABLE transactions ADD COLUMN is_void INTEGER NOT NULL DEFAULT 0;")?;
+    }
+    if !cols.iter().any(|c| c == "void_of") {
+        conn.execute_batch("ALTER TABLE transactions ADD COLUMN void_of TEXT;")?;
+    }
+
     Ok(())
 }
 

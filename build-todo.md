@@ -112,23 +112,23 @@
 - [x] CHECK: Can add, rename, deactivate accounts via UI, all tests pass, `npm run check` clean
 
 ## PHASE 11 — Transaction Register (Read-Only)
-- [ ] Add `list_transactions` Rust command (pagination, sort, filters: date range, account, amount, memo)
-- [ ] Add `get_transaction` Rust command (single by ID, full detail + audit history)
-- [ ] Add `count_transactions` Rust command (total matching filters)
-- [ ] Add all 3 commands to api.ts + MockApi
-- [ ] Create `TransactionRegister.tsx` — table with Date, Ref, Memo, Accounts, Debit, Credit, Status
-- [ ] Multi-entry rows show primary account + "(split)" — collapsed by default, click to expand
-- [ ] Voided transactions: strikethrough + VOID badge
-- [ ] Pagination controls (prev/next, page size 25/50/100)
-- [ ] Filter bar: date range, account dropdown, memo search, clear filters
-- [ ] Add Transaction Register to sidebar
-- [ ] Test: list_transactions returns correct page
-- [ ] Test: date range filter works
-- [ ] Test: account filter returns only matching transactions
-- [ ] Test: memo search is case-insensitive partial match
-- [ ] Test: pagination offset/limit correct
-- [ ] Test: voided transactions included with is_void flag
-- [ ] CHECK: Register shows all transactions, filters work, expand works, all tests pass, `npm run check` clean
+- [x] Add `list_transactions` Rust command (pagination, sort, filters: date range, account, amount, memo)
+- [x] Add `get_transaction` Rust command (single by ID, full detail + audit history)
+- [x] Add `count_transactions` Rust command (total matching filters)
+- [x] Add all 3 commands to api.ts + MockApi
+- [x] Create `TransactionRegister.tsx` — table with Date, Ref, Memo, Accounts, Debit, Credit, Status
+- [x] Multi-entry rows show primary account + "(split)" — collapsed by default, click to expand
+- [x] Voided transactions: strikethrough + VOID badge
+- [x] Pagination controls (prev/next, page size 25/50/100)
+- [x] Filter bar: date range, account dropdown, memo search, clear filters
+- [x] Add Transaction Register to sidebar
+- [x] Test: list_transactions returns correct page
+- [x] Test: date range filter works
+- [x] Test: account filter returns only matching transactions
+- [x] Test: memo search is case-insensitive partial match
+- [x] Test: pagination offset/limit correct
+- [x] Test: voided transactions included with is_void flag
+- [x] CHECK: Register shows all transactions, filters work, expand works, all tests pass, `npm run check` clean
 
 ## PHASE 12 — Transaction Editing, Voiding & Audit Trail
 - [ ] Add `is_void` and `void_of` columns to transactions table
@@ -228,8 +228,8 @@
 
 ---
 
-## CURRENT PHASE: 11
-## LAST COMPLETED CHECK: Phase 10 — account CRUD, 33 tests pass (2026-04-05)
+## CURRENT PHASE: 12
+## LAST COMPLETED CHECK: Phase 11 — transaction register, 41 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (scoped, not scheduled)

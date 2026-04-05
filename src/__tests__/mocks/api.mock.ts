@@ -15,6 +15,8 @@ import type {
   AppMetadata,
   DashboardSummary,
   TransactionWithEntries,
+  ListTransactionsResult,
+  ListTransactionsFilters,
 } from '../../lib/api'
 
 interface StoredTransaction {
@@ -23,6 +25,8 @@ interface StoredTransaction {
   description: string
   reference: string | null
   is_locked: number
+  is_void: number
+  void_of: string | null
   created_at: number
 }
 
@@ -99,6 +103,8 @@ export class MockApi {
       description: data.description,
       reference: data.reference ?? null,
       is_locked: 0,
+      is_void: 0,
+      void_of: null,
       created_at: Date.now(),
     })
 
@@ -263,6 +269,57 @@ export class MockApi {
     }
   }
 
+  private buildTxWithEntries(tx: StoredTransaction): TransactionWithEntries {
+    return {
+      ...tx,
+      entries: this.entries
+        .filter((e) => e.transaction_id === tx.id)
+        .map((e) => ({ ...e })),
+    }
+  }
+
+  listTransactions(filters?: ListTransactionsFilters): ListTransactionsResult {
+    let txs = this.transactions.slice()
+
+    if (filters?.start_date) {
+      txs = txs.filter((t) => t.date >= filters.start_date!)
+    }
+    if (filters?.end_date) {
+      txs = txs.filter((t) => t.date <= filters.end_date!)
+    }
+    if (filters?.account_id) {
+      const aid = filters.account_id
+      const txIds = new Set(this.entries.filter((e) => e.account_id === aid).map((e) => e.transaction_id))
+      txs = txs.filter((t) => txIds.has(t.id))
+    }
+    if (filters?.memo_search) {
+      const search = filters.memo_search.toLowerCase()
+      txs = txs.filter((t) => t.description.toLowerCase().includes(search))
+    }
+
+    txs.sort((a, b) => b.date.localeCompare(a.date) || b.created_at - a.created_at)
+
+    const total = txs.length
+    const off = filters?.offset ?? 0
+    const lim = filters?.limit ?? 50
+    txs = txs.slice(off, off + lim)
+
+    return {
+      transactions: txs.map((tx) => this.buildTxWithEntries(tx)),
+      total,
+    }
+  }
+
+  getTransactionDetail(transactionId: string): TransactionWithEntries {
+    const tx = this.transactions.find((t) => t.id === transactionId)
+    if (!tx) throw new Error(`Transaction not found: ${transactionId}`)
+    return this.buildTxWithEntries(tx)
+  }
+
+  countTransactions(filters?: ListTransactionsFilters): number {
+    return this.listTransactions(filters).total
+  }
+
   getAppMetadata(): AppMetadata {
     return {
       version: '0.1.0',
@@ -338,15 +395,7 @@ export class MockApi {
       .slice()
       .sort((a, b) => b.date.localeCompare(a.date) || b.created_at - a.created_at)
       .slice(0, 10)
-      .map((tx) => ({
-        ...tx,
-        entries: this.entries
-          .filter((e) => e.transaction_id === tx.id)
-          .map((e) => ({
-            ...e,
-            memo: e.memo,
-          })),
-      }))
+      .map((tx) => this.buildTxWithEntries(tx))
 
     return {
       total_assets: bs.total_assets,
