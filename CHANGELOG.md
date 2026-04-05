@@ -1,8 +1,15 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 3 — Complete
+## STATUS: Phase 4 — Complete
 
 ## COMPLETED
+
+### Phase 4 — Engine Unit Tests (2026-04-05)
+- Created `src/__tests__/accounting.test.ts` with 7 tests covering all required accounting rules
+- Tests: balanced saves, unbalanced throws, asset debit increases, liability credit increases
+- Tests: trial balance balances, income statement net income, balance sheet equation (A = L + E)
+- All tests use in-memory SQLite — no production DB needed
+- All 14 total tests pass (7 db + 7 accounting)
 
 ### Phase 3 — Accounting Engine (2026-04-05)
 - Created `src/lib/accounting.ts` with 5 core functions

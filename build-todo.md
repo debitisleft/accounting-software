@@ -34,13 +34,13 @@
 - [x] CHECK: All functions exported and typed with no TypeScript errors
 
 ## PHASE 4 — Engine Unit Tests
-- [ ] Write test: balanced transaction saves successfully
-- [ ] Write test: unbalanced transaction throws typed error
-- [ ] Write test: asset account balance increases on debit
-- [ ] Write test: liability account balance increases on credit
-- [ ] Write test: trial balance debits === trial balance credits
-- [ ] Write test: income statement revenue - expenses = net income
-- [ ] CHECK: `npx vitest run` — ALL tests must pass before Phase 5
+- [x] Write test: balanced transaction saves successfully
+- [x] Write test: unbalanced transaction throws typed error
+- [x] Write test: asset account balance increases on debit
+- [x] Write test: liability account balance increases on credit
+- [x] Write test: trial balance debits === trial balance credits
+- [x] Write test: income statement revenue - expenses = net income
+- [x] CHECK: `npx vitest run` — ALL tests must pass before Phase 5
 
 ## PHASE 5 — Core UI Components
 - [ ] AccountsListPage.tsx — list all accounts with current balance
@@ -66,6 +66,6 @@
 - [ ] CHECK: All Vitest tests still passing
 
 ---
-## CURRENT PHASE: 4
-## LAST COMPLETED CHECK: Phase 3 — all functions typed, tsc --noEmit clean (2026-04-05)
+## CURRENT PHASE: 5
+## LAST COMPLETED CHECK: Phase 4 — 14 tests pass, all accounting rules verified (2026-04-05)
 ## BLOCKING ISSUES: None
