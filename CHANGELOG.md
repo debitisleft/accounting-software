@@ -1,8 +1,37 @@
 # Bookkeeping App — Changelog
 
-## STATUS: ALL PHASES COMPLETE
+## STATUS: ALL PHASES COMPLETE + ARCHITECTURE MIGRATION DONE
 
 ## COMPLETED
+
+### Architecture Migration: Dexie/IndexedDB → Tauri + rusqlite (2026-04-05)
+**Why:** Dexie/IndexedDB is browser-only ephemeral storage. A desktop bookkeeping app
+needs persistent SQLite on disk that survives app restarts and can be backed up.
+
+**What changed:**
+- **Rust backend** (src-tauri/src/): db.rs (init, tables, seed), commands.rs (10 Tauri commands), lib.rs (wiring)
+- **TypeScript API layer** (src/lib/api.ts): single invoke() point, all types matching Rust structs
+- **All 5 UI components**: rewired from Dexie → api.ts (Tauri IPC)
+- **Tests**: MockApi in-memory JS mock implementing same logic as Rust backend
+- **Removed**: Dexie, fake-indexeddb, DatabaseProvider, src/db/, src/lib/accounting.ts
+
+**Where bookkeeping.db lives:** `{app_data_dir}/bookkeeping.db` (Tauri's app data directory)
+  - Windows: `%APPDATA%/com.tauri.dev/bookkeeping.db`
+  - SQLite WAL mode, foreign keys ON, bundled via rusqlite
+
+**Architecture:**
+```
+React UI → api.ts → invoke() → Tauri IPC → commands.rs → rusqlite → bookkeeping.db
+Tests    → MockApi (same logic, in-memory JS objects)
+```
+
+**Key decisions:**
+- Balance validation enforced in Rust (commands.rs), not just UI
+- Audit log written automatically on journal entry edits
+- Period locking prevents edits to reconciled periods
+- All amounts INTEGER CENTS throughout (Rust i64, TypeScript number)
+- UUIDs for all primary keys (uuid v4)
+- 19 tests pass in 328ms via MockApi
 
 ### Phase 7 — Final Integration Check (2026-04-05)
 - Created `src/__tests__/integration.test.ts` with 5 real-world transactions:
@@ -77,6 +106,7 @@
 - `npm create tauri-app@latest` fails in non-interactive terminal — use `create-vite` + `tauri init` instead
 - `accounts._.name` Drizzle internal API doesn't exist in drizzle-orm — use `getTableName()` from `drizzle-orm` instead
 - sql.js CJS module cannot be cleanly imported via Vite ESM — replaced with Dexie.js entirely
+- Dexie/IndexedDB is ephemeral browser storage, wrong for desktop app — replaced with Tauri + rusqlite
 
 ### Fix: sql.js WASM loading error (2026-04-05)
 - Copied `sql-wasm.wasm` from `node_modules/sql.js/dist/` to `public/`

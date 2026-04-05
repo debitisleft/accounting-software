@@ -2,7 +2,7 @@
 
 ## PROJECT GOAL
 Build a double-entry bookkeeping desktop app.
-Stack: Tauri + React + TypeScript + SQLite + Drizzle ORM + Vitest
+Stack: Tauri + React + TypeScript + rusqlite (SQLite on disk) + Vitest
 
 ## HARD RULES — never break these
 - All money is stored as INTEGER CENTS. Never use float for money.
