@@ -171,16 +171,16 @@
 - [x] CHECK: Can export/import database, auto-backup works, all tests pass, `npm run check` clean
 
 ## PHASE 14 — CSV Export
-- [ ] Add `export_csv` Rust command (type enum: TransactionRegister, TrialBalance, IncomeStatement, BalanceSheet, ChartOfAccounts)
-- [ ] Amounts exported as decimal dollars (cents / 100, 2 decimal places)
-- [ ] Add command to api.ts + MockApi
-- [ ] "Export CSV" button on each report component + TransactionRegister + AccountsListPage
-- [ ] Each button → Tauri save file dialog → write CSV → success toast
-- [ ] Test: CSV has correct headers and row count
-- [ ] Test: amounts formatted as decimal dollars
-- [ ] Test: trial balance CSV debits === credits
-- [ ] Test: date filter applies to export
-- [ ] CHECK: All report types export to valid CSV, amounts correct, all tests pass, `npm run check` clean
+- [x] Add `export_csv` Rust command (type enum: TransactionRegister, TrialBalance, IncomeStatement, BalanceSheet, ChartOfAccounts)
+- [x] Amounts exported as decimal dollars (cents / 100, 2 decimal places)
+- [x] Add command to api.ts + MockApi
+- [x] "Export CSV" button on each report component + TransactionRegister + AccountsListPage
+- [x] Each button → Tauri save file dialog → write CSV → success toast
+- [x] Test: CSV has correct headers and row count
+- [x] Test: amounts formatted as decimal dollars
+- [x] Test: trial balance CSV debits === credits
+- [x] Test: date filter applies to export
+- [x] CHECK: All report types export to valid CSV, amounts correct, all tests pass, `npm run check` clean
 
 ## PHASE 15 — Settings & Preferences
 - [ ] Create `settings` table: key TEXT PRIMARY KEY, value TEXT
@@ -228,8 +228,8 @@
 
 ---
 
-## CURRENT PHASE: 14
-## LAST COMPLETED CHECK: Phase 13 — backup/restore, 54 tests pass (2026-04-05)
+## CURRENT PHASE: 15
+## LAST COMPLETED CHECK: Phase 14 — CSV export, 60 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (scoped, not scheduled)

@@ -1502,3 +1502,229 @@ pub async fn list_backups(
     backups.sort_by(|a, b| b.filename.cmp(&a.filename));
     Ok(backups)
 }
+
+// ── Phase 14: CSV Export ─────────────────────────────────
+
+fn cents_to_dollars(cents: i64) -> String {
+    let negative = cents < 0;
+    let abs = cents.unsigned_abs();
+    let dollars = abs / 100;
+    let remainder = abs % 100;
+    if negative {
+        format!("-{}.{:02}", dollars, remainder)
+    } else {
+        format!("{}.{:02}", dollars, remainder)
+    }
+}
+
+#[tauri::command]
+pub async fn export_csv(
+    db: State<'_, DbState>,
+    export_type: String,
+    start_date: Option<String>,
+    end_date: Option<String>,
+    as_of_date: Option<String>,
+    account_id: Option<String>,
+    memo_search: Option<String>,
+) -> Result<String, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    match export_type.as_str() {
+        "ChartOfAccounts" => {
+            let mut csv = String::from("Account Number,Account Name,Type,Active,Balance\n");
+            let mut stmt = conn.prepare(
+                "SELECT a.id, a.code, a.name, a.type, a.is_active,
+                        COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0)
+                 FROM accounts a
+                 LEFT JOIN journal_entries je ON je.account_id = a.id
+                 GROUP BY a.id ORDER BY a.code"
+            ).map_err(|e| e.to_string())?;
+
+            let rows = stmt.query_map([], |row| {
+                let acct_type: String = row.get(3)?;
+                let td: i64 = row.get(5)?;
+                let tc: i64 = row.get(6)?;
+                let balance = if is_debit_normal(&acct_type) { td - tc } else { tc - td };
+                Ok((row.get::<_, String>(1)?, row.get::<_, String>(2)?, acct_type,
+                    row.get::<_, i64>(4)?, balance))
+            }).map_err(|e| e.to_string())?;
+
+            for row in rows {
+                let (code, name, acct_type, active, balance) = row.map_err(|e| e.to_string())?;
+                csv.push_str(&format!("{},\"{}\",{},{},{}\n",
+                    code, name.replace('"', "\"\""), acct_type,
+                    if active == 1 { "Yes" } else { "No" }, cents_to_dollars(balance)));
+            }
+            Ok(csv)
+        }
+
+        "TrialBalance" => {
+            let aod = as_of_date.unwrap_or_else(|| "9999-12-31".to_string());
+            let mut csv = String::from("Account Number,Account Name,Debit,Credit\n");
+            let mut stmt = conn.prepare(
+                "SELECT a.code, a.name, a.type,
+                        COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0)
+                 FROM accounts a
+                 LEFT JOIN journal_entries je ON je.account_id = a.id
+                 LEFT JOIN transactions t ON je.transaction_id = t.id AND t.date <= ?1
+                 WHERE a.is_active = 1
+                 GROUP BY a.id ORDER BY a.code"
+            ).map_err(|e| e.to_string())?;
+
+            let mut total_debit: i64 = 0;
+            let mut total_credit: i64 = 0;
+
+            let rows = stmt.query_map(params![aod], |row| {
+                let acct_type: String = row.get(2)?;
+                let td: i64 = row.get(3)?;
+                let tc: i64 = row.get(4)?;
+                let net = if is_debit_normal(&acct_type) { td - tc } else { tc - td };
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, acct_type, net))
+            }).map_err(|e| e.to_string())?;
+
+            for row in rows {
+                let (code, name, acct_type, net) = row.map_err(|e| e.to_string())?;
+                if net == 0 { continue; }
+                let (d, c) = if net >= 0 {
+                    if is_debit_normal(&acct_type) { (net, 0) } else { (0, net) }
+                } else {
+                    if is_debit_normal(&acct_type) { (0, -net) } else { (-net, 0) }
+                };
+                total_debit += d;
+                total_credit += c;
+                csv.push_str(&format!("{},\"{}\",{},{}\n",
+                    code, name.replace('"', "\"\""), cents_to_dollars(d), cents_to_dollars(c)));
+            }
+            csv.push_str(&format!("TOTAL,,{},{}\n", cents_to_dollars(total_debit), cents_to_dollars(total_credit)));
+            Ok(csv)
+        }
+
+        "IncomeStatement" => {
+            let sd = start_date.unwrap_or_else(|| "0000-01-01".to_string());
+            let ed = end_date.unwrap_or_else(|| "9999-12-31".to_string());
+            let mut csv = String::from("Account Name,Type,Amount\n");
+
+            let mut stmt = conn.prepare(
+                "SELECT a.name, a.type,
+                        COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0)
+                 FROM accounts a
+                 LEFT JOIN journal_entries je ON je.account_id = a.id
+                 LEFT JOIN transactions t ON je.transaction_id = t.id AND t.date >= ?1 AND t.date <= ?2
+                 WHERE a.is_active = 1 AND a.type IN ('REVENUE', 'EXPENSE')
+                 GROUP BY a.id ORDER BY a.type, a.code"
+            ).map_err(|e| e.to_string())?;
+
+            let rows = stmt.query_map(params![sd, ed], |row| {
+                let acct_type: String = row.get(1)?;
+                let td: i64 = row.get(2)?;
+                let tc: i64 = row.get(3)?;
+                let balance = if is_debit_normal(&acct_type) { td - tc } else { tc - td };
+                Ok((row.get::<_, String>(0)?, acct_type, balance))
+            }).map_err(|e| e.to_string())?;
+
+            let mut total_rev: i64 = 0;
+            let mut total_exp: i64 = 0;
+            for row in rows {
+                let (name, acct_type, balance) = row.map_err(|e| e.to_string())?;
+                if balance == 0 { continue; }
+                match acct_type.as_str() {
+                    "REVENUE" => total_rev += balance,
+                    "EXPENSE" => total_exp += balance,
+                    _ => {}
+                }
+                csv.push_str(&format!("\"{}\",{},{}\n", name.replace('"', "\"\""), acct_type, cents_to_dollars(balance)));
+            }
+            csv.push_str(&format!("Net Income,,{}\n", cents_to_dollars(total_rev - total_exp)));
+            Ok(csv)
+        }
+
+        "BalanceSheet" => {
+            let aod = as_of_date.unwrap_or_else(|| "9999-12-31".to_string());
+            let mut csv = String::from("Account Name,Type,Amount\n");
+
+            let mut stmt = conn.prepare(
+                "SELECT a.name, a.type,
+                        COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0)
+                 FROM accounts a
+                 LEFT JOIN journal_entries je ON je.account_id = a.id
+                 LEFT JOIN transactions t ON je.transaction_id = t.id AND t.date <= ?1
+                 WHERE a.is_active = 1
+                 GROUP BY a.id ORDER BY a.type, a.code"
+            ).map_err(|e| e.to_string())?;
+
+            let rows = stmt.query_map(params![aod], |row| {
+                let acct_type: String = row.get(1)?;
+                let td: i64 = row.get(2)?;
+                let tc: i64 = row.get(3)?;
+                let balance = if is_debit_normal(&acct_type) { td - tc } else { tc - td };
+                Ok((row.get::<_, String>(0)?, acct_type, balance))
+            }).map_err(|e| e.to_string())?;
+
+            for row in rows {
+                let (name, acct_type, balance) = row.map_err(|e| e.to_string())?;
+                if balance == 0 { continue; }
+                csv.push_str(&format!("\"{}\",{},{}\n", name.replace('"', "\"\""), acct_type, cents_to_dollars(balance)));
+            }
+            Ok(csv)
+        }
+
+        "TransactionRegister" => {
+            let mut csv = String::from("Date,Reference,Description,Account,Debit,Credit\n");
+            let mut where_clauses: Vec<String> = Vec::new();
+            let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+            let mut idx = 1;
+
+            if let Some(ref sd) = start_date {
+                where_clauses.push(format!("t.date >= ?{}", idx)); idx += 1;
+                param_values.push(Box::new(sd.clone()));
+            }
+            if let Some(ref ed) = end_date {
+                where_clauses.push(format!("t.date <= ?{}", idx)); idx += 1;
+                param_values.push(Box::new(ed.clone()));
+            }
+            if let Some(ref aid) = account_id {
+                where_clauses.push(format!("t.id IN (SELECT transaction_id FROM journal_entries WHERE account_id = ?{})", idx)); idx += 1;
+                param_values.push(Box::new(aid.clone()));
+            }
+            if let Some(ref memo) = memo_search {
+                where_clauses.push(format!("LOWER(t.description) LIKE ?{}", idx));
+                let _ = idx;
+                param_values.push(Box::new(format!("%{}%", memo.to_lowercase())));
+            }
+
+            let where_sql = if where_clauses.is_empty() { String::new() }
+                else { format!(" WHERE {}", where_clauses.join(" AND ")) };
+
+            let query = format!(
+                "SELECT t.date, t.reference, t.description, a.name, je.debit, je.credit
+                 FROM journal_entries je
+                 JOIN transactions t ON je.transaction_id = t.id
+                 JOIN accounts a ON je.account_id = a.id
+                 {} ORDER BY t.date, t.created_at, je.rowid", where_sql);
+
+            let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|b| b.as_ref()).collect();
+            let mut stmt = conn.prepare(&query).map_err(|e| e.to_string())?;
+            let rows = stmt.query_map(params_refs.as_slice(), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            }).map_err(|e| e.to_string())?;
+
+            for row in rows {
+                let (date, reference, desc, acct_name, debit, credit) = row.map_err(|e| e.to_string())?;
+                csv.push_str(&format!("{},{},\"{}\",\"{}\",{},{}\n",
+                    date, reference.unwrap_or_default(),
+                    desc.replace('"', "\"\""), acct_name.replace('"', "\"\""),
+                    cents_to_dollars(debit), cents_to_dollars(credit)));
+            }
+            Ok(csv)
+        }
+
+        _ => Err(format!("Unknown export type: {}", export_type)),
+    }
+}

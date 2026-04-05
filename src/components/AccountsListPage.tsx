@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api, type Account } from '../lib/api'
+import { downloadCsv } from '../lib/download'
 
 function formatCents(cents: number): string {
   const negative = cents < 0
@@ -131,12 +132,15 @@ export function AccountsListPage({ version }: { version: number }) {
     <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <h2 style={{ margin: 0 }}>Chart of Accounts</h2>
-        <button
-          onClick={() => setShowAdd((s) => !s)}
-          style={{ padding: '6px 16px', backgroundColor: '#2196F3', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-        >
-          {showAdd ? 'Cancel' : '+ Add Account'}
-        </button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={async () => { const csv = await api.exportCsv('ChartOfAccounts'); downloadCsv(csv, 'chart-of-accounts.csv') }} style={{ padding: '6px 12px', cursor: 'pointer', fontSize: '12px' }}>Export CSV</button>
+          <button
+            onClick={() => setShowAdd((s) => !s)}
+            style={{ padding: '6px 16px', backgroundColor: '#2196F3', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+          >
+            {showAdd ? 'Cancel' : '+ Add Account'}
+          </button>
+        </div>
       </div>
 
       {showAdd && <AddAccountForm onCreated={() => { refresh(); setShowAdd(false) }} />}

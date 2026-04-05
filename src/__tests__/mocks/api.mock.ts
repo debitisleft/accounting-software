@@ -506,6 +506,86 @@ export class MockApi {
     return this.backups.sort((a, b) => b.filename.localeCompare(a.filename))
   }
 
+  exportCsv(exportType: string, options?: {
+    startDate?: string; endDate?: string; asOfDate?: string;
+    accountId?: string; memoSearch?: string;
+  }): string {
+    const dollarStr = (cents: number): string => {
+      const neg = cents < 0
+      const abs = Math.abs(cents)
+      const d = Math.floor(abs / 100)
+      const r = abs % 100
+      return neg ? `-${d}.${String(r).padStart(2, '0')}` : `${d}.${String(r).padStart(2, '0')}`
+    }
+
+    switch (exportType) {
+      case 'ChartOfAccounts': {
+        let csv = 'Account Number,Account Name,Type,Active,Balance\n'
+        for (const acct of this.accounts.slice().sort((a, b) => a.code.localeCompare(b.code))) {
+          const balance = this.getAccountBalance(acct.id)
+          csv += `${acct.code},"${acct.name}",${acct.type},${acct.is_active ? 'Yes' : 'No'},${dollarStr(balance)}\n`
+        }
+        return csv
+      }
+      case 'TrialBalance': {
+        const tb = this.getTrialBalance(options?.asOfDate)
+        let csv = 'Account Number,Account Name,Debit,Credit\n'
+        for (const row of tb.rows) {
+          csv += `${row.code},"${row.name}",${dollarStr(row.debit)},${dollarStr(row.credit)}\n`
+        }
+        csv += `TOTAL,,${dollarStr(tb.total_debits)},${dollarStr(tb.total_credits)}\n`
+        return csv
+      }
+      case 'IncomeStatement': {
+        const is = this.getIncomeStatement(
+          options?.startDate ?? '0000-01-01',
+          options?.endDate ?? '9999-12-31',
+        )
+        let csv = 'Account Name,Type,Amount\n'
+        for (const acct of [...is.revenue, ...is.expenses]) {
+          const type = is.revenue.includes(acct) ? 'REVENUE' : 'EXPENSE'
+          csv += `"${acct.name}",${type},${dollarStr(acct.balance)}\n`
+        }
+        csv += `Net Income,,${dollarStr(is.net_income)}\n`
+        return csv
+      }
+      case 'BalanceSheet': {
+        const bs = this.getBalanceSheet(options?.asOfDate ?? '9999-12-31')
+        let csv = 'Account Name,Type,Amount\n'
+        for (const acct of bs.assets) csv += `"${acct.name}",ASSET,${dollarStr(acct.balance)}\n`
+        for (const acct of bs.liabilities) csv += `"${acct.name}",LIABILITY,${dollarStr(acct.balance)}\n`
+        for (const acct of bs.equity) csv += `"${acct.name}",EQUITY,${dollarStr(acct.balance)}\n`
+        return csv
+      }
+      case 'TransactionRegister': {
+        let txs = this.transactions.slice()
+        if (options?.startDate) txs = txs.filter((t) => t.date >= options.startDate!)
+        if (options?.endDate) txs = txs.filter((t) => t.date <= options.endDate!)
+        if (options?.accountId) {
+          const aid = options.accountId
+          const txIds = new Set(this.entries.filter((e) => e.account_id === aid).map((e) => e.transaction_id))
+          txs = txs.filter((t) => txIds.has(t.id))
+        }
+        if (options?.memoSearch) {
+          const s = options.memoSearch.toLowerCase()
+          txs = txs.filter((t) => t.description.toLowerCase().includes(s))
+        }
+        txs.sort((a, b) => a.date.localeCompare(b.date))
+        let csv = 'Date,Reference,Description,Account,Debit,Credit\n'
+        for (const tx of txs) {
+          const entries = this.entries.filter((e) => e.transaction_id === tx.id)
+          for (const e of entries) {
+            const acct = this.accounts.find((a) => a.id === e.account_id)
+            csv += `${tx.date},${tx.reference ?? ''},"${tx.description}","${acct?.name ?? e.account_id}",${dollarStr(e.debit)},${dollarStr(e.credit)}\n`
+          }
+        }
+        return csv
+      }
+      default:
+        throw new Error(`Unknown export type: ${exportType}`)
+    }
+  }
+
   getAppMetadata(): AppMetadata {
     return {
       version: '0.1.0',

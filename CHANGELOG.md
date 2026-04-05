@@ -1,8 +1,19 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 13 Complete — working on Phase 14
+## STATUS: Phase 14 Complete — working on Phase 15
 
 ## COMPLETED
+
+### Phase 14 — CSV Export (2026-04-05)
+- Added `export_csv` Rust command supporting 5 export types: ChartOfAccounts, TrialBalance, IncomeStatement, BalanceSheet, TransactionRegister
+- All amounts exported as decimal dollars (cents / 100, 2 decimal places) for spreadsheet compatibility
+- TransactionRegister export respects current filters (date range, account, memo search)
+- Trial Balance export includes TOTAL row; Income Statement includes Net Income row
+- Added to api.ts + MockApi with full type coverage
+- Created src/lib/download.ts utility for browser CSV download (Blob + anchor)
+- Added "Export CSV" button to all 5 data views (3 reports + register + accounts)
+- 6 new tests: headers/row count, dollar format, TB balances, date filter, chart of accounts, income statement
+- 60 total tests pass, typecheck clean
 
 ### Phase 13 — Backup & Restore (2026-04-05)
 - Added 4 Rust commands: export_database (VACUUM INTO), import_database (validate + replace), auto_backup (keep 5), list_backups

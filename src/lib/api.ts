@@ -296,4 +296,20 @@ export const api = {
 
   listBackups: () =>
     invoke<BackupInfo[]>('list_backups'),
+
+  exportCsv: (exportType: string, options?: {
+    startDate?: string
+    endDate?: string
+    asOfDate?: string
+    accountId?: string
+    memoSearch?: string
+  }) =>
+    invoke<string>('export_csv', {
+      exportType,
+      startDate: options?.startDate ?? null,
+      endDate: options?.endDate ?? null,
+      asOfDate: options?.asOfDate ?? null,
+      accountId: options?.accountId ?? null,
+      memoSearch: options?.memoSearch ?? null,
+    }),
 }

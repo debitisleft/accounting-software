@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api, type TrialBalanceResult } from '../lib/api'
+import { downloadCsv } from '../lib/download'
 
 function formatCents(cents: number): string {
   if (cents === 0) return ''
@@ -22,7 +23,10 @@ export function TrialBalanceReport({ version }: { version: number }) {
 
   return (
     <div style={{ padding: '20px', maxWidth: '700px', margin: '0 auto' }}>
-      <h2>Trial Balance</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2>Trial Balance</h2>
+        <button onClick={async () => { const csv = await api.exportCsv('TrialBalance'); downloadCsv(csv, 'trial-balance.csv') }} style={{ padding: '6px 12px', cursor: 'pointer', fontSize: '12px' }}>Export CSV</button>
+      </div>
 
       {!data.is_balanced && (
         <div style={{ padding: '12px', backgroundColor: '#ffe6e6', color: 'red', borderRadius: '4px', marginBottom: '16px', fontWeight: 'bold' }}>

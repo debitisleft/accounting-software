@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api, type TransactionWithEntries, type Account, type AuditLogEntry, type JournalEntryInput } from '../lib/api'
+import { downloadCsv } from '../lib/download'
 
 function formatCents(cents: number): string {
   if (cents === 0) return ''
@@ -259,7 +260,10 @@ export function TransactionRegister({ version }: { version: number }) {
 
   return (
     <div style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto' }}>
-      <h2>Transaction Register</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2>Transaction Register</h2>
+        <button onClick={async () => { const csv = await api.exportCsv('TransactionRegister', { startDate: startDate || undefined, endDate: endDate || undefined, accountId: accountId || undefined, memoSearch: memoSearch || undefined }); downloadCsv(csv, 'transactions.csv') }} style={{ padding: '6px 12px', cursor: 'pointer', fontSize: '12px' }}>Export CSV</button>
+      </div>
 
       {/* Filter bar */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px', padding: '12px', backgroundColor: '#f5f5f5', borderRadius: '6px' }}>

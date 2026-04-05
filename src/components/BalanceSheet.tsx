@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api, type BalanceSheetResult } from '../lib/api'
+import { downloadCsv } from '../lib/download'
 
 function formatCents(cents: number): string {
   const negative = cents < 0
@@ -24,7 +25,10 @@ export function BalanceSheetReport({ version }: { version: number }) {
 
   return (
     <div style={{ padding: '20px', maxWidth: '700px', margin: '0 auto' }}>
-      <h2>Balance Sheet</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2>Balance Sheet</h2>
+        <button onClick={async () => { const csv = await api.exportCsv('BalanceSheet', { asOfDate }); downloadCsv(csv, 'balance-sheet.csv') }} style={{ padding: '6px 12px', cursor: 'pointer', fontSize: '12px' }}>Export CSV</button>
+      </div>
 
       <div style={{ marginBottom: '20px' }}>
         <label>
