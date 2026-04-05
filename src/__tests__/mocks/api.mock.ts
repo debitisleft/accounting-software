@@ -74,6 +74,12 @@ export class MockApi {
   auditLog: StoredAuditLog[] = []
   lockPeriods: StoredLockPeriod[] = []
   backups: { path: string; filename: string; size: number; created_at: string }[] = []
+  settings: Record<string, string> = {
+    company_name: 'My Company',
+    fiscal_year_start_month: '1',
+    currency_symbol: '$',
+    date_format: 'YYYY-MM-DD',
+  }
   private nextId = 1
   private auditSeq = 0
 
@@ -584,6 +590,18 @@ export class MockApi {
       default:
         throw new Error(`Unknown export type: ${exportType}`)
     }
+  }
+
+  getSetting(key: string): string | null {
+    return this.settings[key] ?? null
+  }
+
+  setSetting(key: string, value: string): void {
+    this.settings[key] = value
+  }
+
+  getAllSettings(): Record<string, string> {
+    return { ...this.settings }
   }
 
   getAppMetadata(): AppMetadata {

@@ -1,8 +1,17 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 14 Complete — working on Phase 15
+## STATUS: Phase 15 Complete — working on Phase 16
 
 ## COMPLETED
+
+### Phase 15 — Settings & Preferences (2026-04-05)
+- Created settings table in db.rs with default seeds: company_name, fiscal_year_start_month, currency_symbol, date_format
+- Added 3 Rust commands: get_setting, set_setting, get_all_settings (upsert via INSERT OR REPLACE)
+- All 3 in api.ts + MockApi
+- Updated SettingsPage.tsx: company name, fiscal year month, currency symbol, date format, save button
+- About section shows version + db path
+- 5 new tests: get default, get null for unset, set+get roundtrip, get_all complete, overwrite
+- 65 total tests pass, typecheck clean
 
 ### Phase 14 — CSV Export (2026-04-05)
 - Added `export_csv` Rust command supporting 5 export types: ChartOfAccounts, TrialBalance, IncomeStatement, BalanceSheet, TransactionRegister

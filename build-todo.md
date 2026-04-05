@@ -183,18 +183,18 @@
 - [x] CHECK: All report types export to valid CSV, amounts correct, all tests pass, `npm run check` clean
 
 ## PHASE 15 — Settings & Preferences
-- [ ] Create `settings` table: key TEXT PRIMARY KEY, value TEXT
-- [ ] Seed defaults: company_name, fiscal_year_start_month, currency_symbol, date_format
-- [ ] Add `get_setting`, `set_setting`, `get_all_settings` Rust commands
-- [ ] Add all 3 commands to api.ts + MockApi
-- [ ] Create `SettingsPage.tsx`: company name, fiscal year month, currency symbol, date format, save button
-- [ ] About section: app version, db path, db size
-- [ ] Apply settings throughout app: currency symbol in amounts, date format in displays, company name in header
-- [ ] Fiscal year start month used in income statement default range
-- [ ] Test: get_setting returns default for unset key
-- [ ] Test: set + get roundtrips correctly
-- [ ] Test: get_all_settings returns complete map
-- [ ] CHECK: Settings save/persist, currency and dates reflected in app, all tests pass, `npm run check` clean
+- [x] Create `settings` table: key TEXT PRIMARY KEY, value TEXT
+- [x] Seed defaults: company_name, fiscal_year_start_month, currency_symbol, date_format
+- [x] Add `get_setting`, `set_setting`, `get_all_settings` Rust commands
+- [x] Add all 3 commands to api.ts + MockApi
+- [x] Create `SettingsPage.tsx`: company name, fiscal year month, currency symbol, date format, save button
+- [x] About section: app version, db path, db size
+- [x] Apply settings throughout app: currency symbol in amounts, date format in displays, company name in header
+- [x] Fiscal year start month used in income statement default range
+- [x] Test: get_setting returns default for unset key
+- [x] Test: set + get roundtrips correctly
+- [x] Test: get_all_settings returns complete map
+- [x] CHECK: Settings save/persist, currency and dates reflected in app, all tests pass, `npm run check` clean
 
 ## PHASE 16 — Period Management UI
 - [ ] Add `lock_period` Rust command (end_date, validates sequential)
@@ -228,8 +228,8 @@
 
 ---
 
-## CURRENT PHASE: 15
-## LAST COMPLETED CHECK: Phase 14 — CSV export, 60 tests pass (2026-04-05)
+## CURRENT PHASE: 16
+## LAST COMPLETED CHECK: Phase 15 — settings, 65 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (scoped, not scheduled)

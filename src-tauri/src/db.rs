@@ -105,6 +105,28 @@ fn create_tables(conn: &Connection) -> Result<()> {
         conn.execute_batch("ALTER TABLE audit_log ADD COLUMN transaction_id TEXT;")?;
     }
 
+    // Settings table
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );"
+    )?;
+
+    // Seed default settings
+    let setting_count: i64 = conn.query_row("SELECT COUNT(*) FROM settings", [], |row| row.get(0))?;
+    if setting_count == 0 {
+        let defaults = [
+            ("company_name", "My Company"),
+            ("fiscal_year_start_month", "1"),
+            ("currency_symbol", "$"),
+            ("date_format", "YYYY-MM-DD"),
+        ];
+        for (key, value) in defaults {
+            conn.execute("INSERT INTO settings (key, value) VALUES (?1, ?2)", params![key, value])?;
+        }
+    }
+
     Ok(())
 }
 

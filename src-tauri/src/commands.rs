@@ -1728,3 +1728,52 @@ pub async fn export_csv(
         _ => Err(format!("Unknown export type: {}", export_type)),
     }
 }
+
+// ── Phase 15: Settings & Preferences ─────────────────────
+
+#[tauri::command]
+pub async fn get_setting(
+    db: State<'_, DbState>,
+    key: String,
+) -> Result<Option<String>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let result: Option<String> = conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        params![key],
+        |row| row.get(0),
+    ).ok();
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn set_setting(
+    db: State<'_, DbState>,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        params![key, value],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_all_settings(
+    db: State<'_, DbState>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare("SELECT key, value FROM settings")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }).map_err(|e| e.to_string())?;
+
+    let mut map = std::collections::HashMap::new();
+    for row in rows {
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        map.insert(k, v);
+    }
+    Ok(map)
+}

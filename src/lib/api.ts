@@ -312,4 +312,13 @@ export const api = {
       accountId: options?.accountId ?? null,
       memoSearch: options?.memoSearch ?? null,
     }),
+
+  getSetting: (key: string) =>
+    invoke<string | null>('get_setting', { key }),
+
+  setSetting: (key: string, value: string) =>
+    invoke<void>('set_setting', { key, value }),
+
+  getAllSettings: () =>
+    invoke<Record<string, string>>('get_all_settings'),
 }
