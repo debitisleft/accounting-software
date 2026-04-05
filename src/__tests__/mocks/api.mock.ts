@@ -17,6 +17,7 @@ import type {
   TransactionWithEntries,
   ListTransactionsResult,
   ListTransactionsFilters,
+  AuditLogEntry,
 } from '../../lib/api'
 
 interface StoredTransaction {
@@ -47,11 +48,29 @@ function normalBalanceFor(type: string): string {
   return isDebitNormal(type) ? 'DEBIT' : 'CREDIT'
 }
 
+interface StoredAuditLog {
+  id: string
+  transaction_id: string
+  field_changed: string
+  old_value: string
+  new_value: string
+  changed_at: number
+}
+
+interface StoredLockPeriod {
+  account_id: string
+  period_start: string
+  period_end: string
+}
+
 export class MockApi {
   accounts: Account[] = []
   transactions: StoredTransaction[] = []
   entries: StoredEntry[] = []
+  auditLog: StoredAuditLog[] = []
+  lockPeriods: StoredLockPeriod[] = []
   private nextId = 1
+  private auditSeq = 0
 
   private genId(): string {
     return `mock-${this.nextId++}`
@@ -318,6 +337,133 @@ export class MockApi {
 
   countTransactions(filters?: ListTransactionsFilters): number {
     return this.listTransactions(filters).total
+  }
+
+  private isTransactionLocked(transactionId: string): boolean {
+    const tx = this.transactions.find((t) => t.id === transactionId)
+    if (!tx) return false
+    const txEntryAccountIds = this.entries
+      .filter((e) => e.transaction_id === transactionId)
+      .map((e) => e.account_id)
+    return this.lockPeriods.some((lp) =>
+      txEntryAccountIds.includes(lp.account_id) &&
+      lp.period_start <= tx.date && lp.period_end >= tx.date
+    )
+  }
+
+  private writeAuditLog(transactionId: string, fieldChanged: string, oldValue: string, newValue: string): void {
+    this.auditSeq++
+    this.auditLog.push({
+      id: this.genId(),
+      transaction_id: transactionId,
+      field_changed: fieldChanged,
+      old_value: oldValue,
+      new_value: newValue,
+      changed_at: this.auditSeq,
+    })
+  }
+
+  addLockPeriod(accountId: string, periodStart: string, periodEnd: string): void {
+    this.lockPeriods.push({ account_id: accountId, period_start: periodStart, period_end: periodEnd })
+  }
+
+  updateTransaction(transactionId: string, data: { date?: string; description?: string; reference?: string }): void {
+    if (this.isTransactionLocked(transactionId)) {
+      throw new Error('Cannot edit: transaction is in a locked period')
+    }
+    const tx = this.transactions.find((t) => t.id === transactionId)
+    if (!tx) throw new Error(`Transaction not found: ${transactionId}`)
+
+    if (data.date !== undefined && data.date !== tx.date) {
+      this.writeAuditLog(transactionId, 'date', tx.date, data.date)
+      tx.date = data.date
+    }
+    if (data.description !== undefined && data.description !== tx.description) {
+      this.writeAuditLog(transactionId, 'description', tx.description, data.description)
+      tx.description = data.description
+    }
+    if (data.reference !== undefined && data.reference !== (tx.reference ?? '')) {
+      this.writeAuditLog(transactionId, 'reference', tx.reference ?? '', data.reference)
+      tx.reference = data.reference
+    }
+  }
+
+  updateTransactionLines(transactionId: string, newEntries: JournalEntryInput[]): void {
+    if (this.isTransactionLocked(transactionId)) {
+      throw new Error('Cannot edit: transaction is in a locked period')
+    }
+    const tx = this.transactions.find((t) => t.id === transactionId)
+    if (!tx) throw new Error(`Transaction not found: ${transactionId}`)
+
+    const totalDebit = newEntries.reduce((s, e) => s + e.debit, 0)
+    const totalCredit = newEntries.reduce((s, e) => s + e.credit, 0)
+    if (totalDebit !== totalCredit) {
+      throw new Error(`Lines do not balance: debits=${totalDebit} credits=${totalCredit}`)
+    }
+    if (totalDebit === 0) throw new Error('Transaction must have non-zero amounts')
+
+    const oldEntries = this.entries.filter((e) => e.transaction_id === transactionId)
+    const oldStr = oldEntries.map((e) => `${e.account_id}:D${e.debit}C${e.credit}`).join(';')
+    const newStr = newEntries.map((e) => `${e.account_id}:D${e.debit}C${e.credit}`).join(';')
+
+    this.entries = this.entries.filter((e) => e.transaction_id !== transactionId)
+    for (const entry of newEntries) {
+      this.entries.push({
+        id: this.genId(),
+        transaction_id: transactionId,
+        account_id: entry.account_id,
+        debit: entry.debit,
+        credit: entry.credit,
+        memo: entry.memo ?? null,
+      })
+    }
+    this.writeAuditLog(transactionId, 'lines', oldStr, newStr)
+  }
+
+  voidTransaction(transactionId: string): string {
+    if (this.isTransactionLocked(transactionId)) {
+      throw new Error('Cannot void: transaction is in a locked period')
+    }
+    const tx = this.transactions.find((t) => t.id === transactionId)
+    if (!tx) throw new Error(`Transaction not found: ${transactionId}`)
+    if (tx.is_void) throw new Error('Transaction is already voided')
+
+    const originalEntries = this.entries.filter((e) => e.transaction_id === transactionId)
+
+    // Create reversing transaction
+    const voidTxId = this.genId()
+    this.transactions.push({
+      id: voidTxId,
+      date: tx.date,
+      description: `VOID: ${tx.description}`,
+      reference: 'VOID',
+      is_locked: 0,
+      is_void: 0,
+      void_of: transactionId,
+      created_at: Date.now(),
+    })
+
+    // Reversed entries (debit↔credit)
+    for (const entry of originalEntries) {
+      this.entries.push({
+        id: this.genId(),
+        transaction_id: voidTxId,
+        account_id: entry.account_id,
+        debit: entry.credit,
+        credit: entry.debit,
+        memo: entry.memo,
+      })
+    }
+
+    tx.is_void = 1
+    this.writeAuditLog(transactionId, 'voided', 'false', 'true')
+    return voidTxId
+  }
+
+  getAuditLog(transactionId: string): AuditLogEntry[] {
+    return this.auditLog
+      .filter((a) => a.transaction_id === transactionId)
+      .sort((a, b) => b.changed_at - a.changed_at)
   }
 
   getAppMetadata(): AppMetadata {

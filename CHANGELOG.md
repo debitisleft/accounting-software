@@ -1,8 +1,22 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 11 Complete — working on Phase 12
+## STATUS: Phase 12 Complete — working on Phase 13
 
 ## COMPLETED
+
+### Phase 12 — Transaction Editing, Voiding & Audit Trail (2026-04-05)
+- Added 4 Rust commands: update_transaction, update_transaction_lines, void_transaction, get_audit_log
+- Added transaction_id column to audit_log table (migration in db.rs)
+- update_transaction: edits date/description/reference, writes audit log per field, rejects if period locked
+- update_transaction_lines: atomic line replacement, validates balance, audit logs old/new entries
+- void_transaction: creates reversing entry (debit↔credit swap), marks original is_void=1, rejects if locked
+- get_audit_log: returns audit trail for a transaction ordered by changed_at desc
+- Added helper functions: is_transaction_locked(), write_audit_log()
+- TransactionRegister expanded view now has: Edit (metadata), Edit Amounts (inline lines with balance indicator), Void (with confirm), View History (audit trail panel)
+- Period-locked rows show lock icon, edit/void buttons hidden
+- MockApi: added auditLog storage, lockPeriods, isTransactionLocked check, all 4 methods
+- 8 new tests: edit metadata/amounts/audit, void creates reversal, void sets flag, locked rejects, audit order
+- 49 total tests pass, typecheck clean
 
 ### Phase 11 — Transaction Register (2026-04-05)
 - Added 3 Rust commands: list_transactions (pagination + filters), get_transaction_detail, count_transactions

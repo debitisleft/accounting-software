@@ -55,6 +55,15 @@ export interface ListTransactionsFilters {
   memo_search?: string
 }
 
+export interface AuditLogEntry {
+  id: string
+  transaction_id: string | null
+  field_changed: string
+  old_value: string
+  new_value: string
+  changed_at: number
+}
+
 export interface AccountBalanceRow {
   account_id: string
   code: string
@@ -236,4 +245,21 @@ export const api = {
       accountId: filters?.account_id ?? null,
       memoSearch: filters?.memo_search ?? null,
     }),
+
+  updateTransaction: (transactionId: string, data: { date?: string; description?: string; reference?: string }) =>
+    invoke<void>('update_transaction', {
+      transactionId,
+      date: data.date ?? null,
+      description: data.description ?? null,
+      reference: data.reference ?? null,
+    }),
+
+  updateTransactionLines: (transactionId: string, entries: JournalEntryInput[]) =>
+    invoke<void>('update_transaction_lines', { transactionId, entries }),
+
+  voidTransaction: (transactionId: string) =>
+    invoke<string>('void_transaction', { transactionId }),
+
+  getAuditLog: (transactionId: string) =>
+    invoke<AuditLogEntry[]>('get_audit_log', { transactionId }),
 }

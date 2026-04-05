@@ -1060,3 +1060,267 @@ pub async fn count_transactions(
 
     Ok(count)
 }
+
+// ── Phase 12: Transaction Editing, Voiding & Audit Trail ─
+
+fn is_transaction_locked(conn: &rusqlite::Connection, transaction_id: &str) -> Result<bool, String> {
+    // A transaction is locked if ANY of its journal entries touch an account
+    // that has a locked period covering the transaction date
+    let locked: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM journal_entries je
+         JOIN transactions t ON je.transaction_id = t.id
+         JOIN reconciliation_periods rp ON rp.account_id = je.account_id
+           AND rp.period_start <= t.date AND rp.period_end >= t.date AND rp.is_locked = 1
+         WHERE je.transaction_id = ?1",
+        params![transaction_id],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+    Ok(locked)
+}
+
+fn write_audit_log(
+    conn: &rusqlite::Connection,
+    transaction_id: &str,
+    field_changed: &str,
+    old_value: &str,
+    new_value: &str,
+) -> Result<(), String> {
+    let id = Uuid::new_v4().to_string();
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO audit_log (id, journal_entry_id, transaction_id, field_changed, old_value, new_value, changed_at)
+         VALUES (?1, '', ?2, ?3, ?4, ?5, ?6)",
+        params![id, transaction_id, field_changed, old_value, new_value, now],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_transaction(
+    db: State<'_, DbState>,
+    transaction_id: String,
+    date: Option<String>,
+    description: Option<String>,
+    reference: Option<String>,
+) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    if is_transaction_locked(&conn, &transaction_id)? {
+        return Err("Cannot edit: transaction is in a locked period".to_string());
+    }
+
+    // Get current values for audit log
+    let (old_date, old_desc, old_ref): (String, String, Option<String>) = conn.query_row(
+        "SELECT date, description, reference FROM transactions WHERE id = ?1",
+        params![transaction_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).map_err(|_| format!("Transaction not found: {}", transaction_id))?;
+
+    if let Some(ref new_date) = date {
+        if *new_date != old_date {
+            conn.execute("UPDATE transactions SET date = ?1 WHERE id = ?2", params![new_date, transaction_id])
+                .map_err(|e| e.to_string())?;
+            write_audit_log(&conn, &transaction_id, "date", &old_date, new_date)?;
+        }
+    }
+
+    if let Some(ref new_desc) = description {
+        if *new_desc != old_desc {
+            conn.execute("UPDATE transactions SET description = ?1 WHERE id = ?2", params![new_desc, transaction_id])
+                .map_err(|e| e.to_string())?;
+            write_audit_log(&conn, &transaction_id, "description", &old_desc, new_desc)?;
+        }
+    }
+
+    if let Some(ref new_ref) = reference {
+        let old_ref_str = old_ref.unwrap_or_default();
+        if *new_ref != old_ref_str {
+            conn.execute("UPDATE transactions SET reference = ?1 WHERE id = ?2", params![new_ref, transaction_id])
+                .map_err(|e| e.to_string())?;
+            write_audit_log(&conn, &transaction_id, "reference", &old_ref_str, new_ref)?;
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_transaction_lines(
+    db: State<'_, DbState>,
+    transaction_id: String,
+    entries: Vec<JournalEntryInput>,
+) -> Result<(), String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    if is_transaction_locked(&conn, &transaction_id)? {
+        return Err("Cannot edit: transaction is in a locked period".to_string());
+    }
+
+    // Validate balance
+    let total_debit: i64 = entries.iter().map(|e| e.debit).sum();
+    let total_credit: i64 = entries.iter().map(|e| e.credit).sum();
+    if total_debit != total_credit {
+        return Err(format!("Lines do not balance: debits={} credits={}", total_debit, total_credit));
+    }
+    if total_debit == 0 {
+        return Err("Transaction must have non-zero amounts".to_string());
+    }
+
+    // Capture old entries for audit
+    let mut old_stmt = conn.prepare(
+        "SELECT account_id, debit, credit, memo FROM journal_entries WHERE transaction_id = ?1"
+    ).map_err(|e| e.to_string())?;
+    let old_entries: Vec<String> = old_stmt.query_map(params![transaction_id], |row| {
+        Ok(format!("{}:D{}C{}",
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, i64>(2)?))
+    }).map_err(|e| e.to_string())?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    let new_entries: Vec<String> = entries.iter()
+        .map(|e| format!("{}:D{}C{}", e.account_id, e.debit, e.credit))
+        .collect();
+
+    // Atomically replace
+    conn.execute("BEGIN", []).map_err(|e| e.to_string())?;
+    let result = (|| -> Result<(), String> {
+        conn.execute("DELETE FROM journal_entries WHERE transaction_id = ?1", params![transaction_id])
+            .map_err(|e| e.to_string())?;
+        for entry in &entries {
+            let eid = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO journal_entries (id, transaction_id, account_id, debit, credit, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![eid, transaction_id, entry.account_id, entry.debit, entry.credit, entry.memo],
+            ).map_err(|e| e.to_string())?;
+        }
+        write_audit_log(&conn, &transaction_id, "lines",
+            &old_entries.join(";"), &new_entries.join(";"))?;
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => { conn.execute("COMMIT", []).map_err(|e| e.to_string())?; Ok(()) }
+        Err(e) => { let _ = conn.execute("ROLLBACK", []); Err(e) }
+    }
+}
+
+#[tauri::command]
+pub async fn void_transaction(
+    db: State<'_, DbState>,
+    transaction_id: String,
+) -> Result<String, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    if is_transaction_locked(&conn, &transaction_id)? {
+        return Err("Cannot void: transaction is in a locked period".to_string());
+    }
+
+    // Check not already voided
+    let already_void: bool = conn.query_row(
+        "SELECT is_void FROM transactions WHERE id = ?1",
+        params![transaction_id],
+        |row| Ok(row.get::<_, i64>(0)? != 0),
+    ).map_err(|_| format!("Transaction not found: {}", transaction_id))?;
+
+    if already_void {
+        return Err("Transaction is already voided".to_string());
+    }
+
+    // Get original entries
+    let mut stmt = conn.prepare(
+        "SELECT account_id, debit, credit, memo FROM journal_entries WHERE transaction_id = ?1"
+    ).map_err(|e| e.to_string())?;
+    let original_entries: Vec<(String, i64, i64, Option<String>)> = stmt.query_map(params![transaction_id], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+    }).map_err(|e| e.to_string())?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    // Get original date and description
+    let (orig_date, orig_desc): (String, String) = conn.query_row(
+        "SELECT date, description FROM transactions WHERE id = ?1",
+        params![transaction_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(|e| e.to_string())?;
+
+    let now = Utc::now().timestamp();
+
+    conn.execute("BEGIN", []).map_err(|e| e.to_string())?;
+    let result = (|| -> Result<String, String> {
+        // Create reversing transaction
+        let void_tx_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO transactions (id, date, description, reference, is_locked, is_void, void_of, created_at)
+             VALUES (?1, ?2, ?3, ?4, 0, 0, ?5, ?6)",
+            params![void_tx_id, orig_date, format!("VOID: {}", orig_desc), "VOID", transaction_id, now],
+        ).map_err(|e| e.to_string())?;
+
+        // Insert reversed entries (debit↔credit swapped)
+        for (account_id, debit, credit, memo) in &original_entries {
+            let eid = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO journal_entries (id, transaction_id, account_id, debit, credit, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![eid, void_tx_id, account_id, credit, debit, memo],
+            ).map_err(|e| e.to_string())?;
+        }
+
+        // Mark original as voided
+        conn.execute(
+            "UPDATE transactions SET is_void = 1 WHERE id = ?1",
+            params![transaction_id],
+        ).map_err(|e| e.to_string())?;
+
+        // Audit log
+        write_audit_log(&conn, &transaction_id, "voided", "false", "true")?;
+
+        Ok(void_tx_id)
+    })();
+
+    match result {
+        Ok(id) => { conn.execute("COMMIT", []).map_err(|e| e.to_string())?; Ok(id) }
+        Err(e) => { let _ = conn.execute("ROLLBACK", []); Err(e) }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuditLogEntry {
+    pub id: String,
+    pub transaction_id: Option<String>,
+    pub field_changed: String,
+    pub old_value: String,
+    pub new_value: String,
+    pub changed_at: i64,
+}
+
+#[tauri::command]
+pub async fn get_audit_log(
+    db: State<'_, DbState>,
+    transaction_id: String,
+) -> Result<Vec<AuditLogEntry>, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, transaction_id, field_changed, old_value, new_value, changed_at
+         FROM audit_log WHERE transaction_id = ?1
+         ORDER BY changed_at DESC"
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(params![transaction_id], |row| {
+        Ok(AuditLogEntry {
+            id: row.get(0)?,
+            transaction_id: row.get(1)?,
+            field_changed: row.get(2)?,
+            old_value: row.get(3)?,
+            new_value: row.get(4)?,
+            changed_at: row.get(5)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut entries = Vec::new();
+    for row in rows {
+        entries.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(entries)
+}

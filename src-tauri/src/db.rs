@@ -96,6 +96,15 @@ fn create_tables(conn: &Connection) -> Result<()> {
         conn.execute_batch("ALTER TABLE transactions ADD COLUMN void_of TEXT;")?;
     }
 
+    // Migration: add transaction_id column to audit_log if not present
+    let audit_cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(audit_log)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>>>()?;
+    if !audit_cols.iter().any(|c| c == "transaction_id") {
+        conn.execute_batch("ALTER TABLE audit_log ADD COLUMN transaction_id TEXT;")?;
+    }
+
     Ok(())
 }
 

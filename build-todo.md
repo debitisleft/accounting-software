@@ -131,28 +131,28 @@
 - [x] CHECK: Register shows all transactions, filters work, expand works, all tests pass, `npm run check` clean
 
 ## PHASE 12 — Transaction Editing, Voiding & Audit Trail
-- [ ] Add `is_void` and `void_of` columns to transactions table
-- [ ] Verify audit_log table has: id, transaction_id, field_changed, old_value, new_value, changed_at
-- [ ] Add `update_transaction` Rust command (date, memo, reference — writes audit log, rejects if locked)
-- [ ] Add `update_transaction_lines` Rust command (replaces lines atomically, validates balance, audit log, rejects if locked)
-- [ ] Add `void_transaction` Rust command (reversing entry, marks original void, rejects if locked)
-- [ ] Add `get_audit_log` Rust command (audit trail for a transaction_id)
-- [ ] Add all 4 commands to api.ts + MockApi
-- [ ] In expanded transaction: Edit button → inline edit mode (metadata fields become inputs)
-- [ ] "Edit Amounts" → line items become editable rows with live balance indicator
-- [ ] Save / Cancel buttons on edit mode
-- [ ] "Void" button → confirmation dialog → creates reversing entry
-- [ ] Period-locked rows: greyed out, no edit/void buttons
-- [ ] "View History" link → collapsible audit trail panel
-- [ ] Test: edit metadata writes audit log
-- [ ] Test: edit amounts validates balance
-- [ ] Test: edit amounts writes audit log with old/new JSON
-- [ ] Test: void creates correct reversing entry
-- [ ] Test: void sets is_void on original
-- [ ] Test: edit locked-period transaction rejected
-- [ ] Test: void locked-period transaction rejected
-- [ ] Test: get_audit_log returns correct order
-- [ ] CHECK: Can edit and void transactions, audit trail visible, locked periods enforced, all tests pass, `npm run check` clean
+- [x] Add `is_void` and `void_of` columns to transactions table
+- [x] Verify audit_log table has: id, transaction_id, field_changed, old_value, new_value, changed_at
+- [x] Add `update_transaction` Rust command (date, memo, reference — writes audit log, rejects if locked)
+- [x] Add `update_transaction_lines` Rust command (replaces lines atomically, validates balance, audit log, rejects if locked)
+- [x] Add `void_transaction` Rust command (reversing entry, marks original void, rejects if locked)
+- [x] Add `get_audit_log` Rust command (audit trail for a transaction_id)
+- [x] Add all 4 commands to api.ts + MockApi
+- [x] In expanded transaction: Edit button → inline edit mode (metadata fields become inputs)
+- [x] "Edit Amounts" → line items become editable rows with live balance indicator
+- [x] Save / Cancel buttons on edit mode
+- [x] "Void" button → confirmation dialog → creates reversing entry
+- [x] Period-locked rows: greyed out, no edit/void buttons
+- [x] "View History" link → collapsible audit trail panel
+- [x] Test: edit metadata writes audit log
+- [x] Test: edit amounts validates balance
+- [x] Test: edit amounts writes audit log with old/new JSON
+- [x] Test: void creates correct reversing entry
+- [x] Test: void sets is_void on original
+- [x] Test: edit locked-period transaction rejected
+- [x] Test: void locked-period transaction rejected
+- [x] Test: get_audit_log returns correct order
+- [x] CHECK: Can edit and void transactions, audit trail visible, locked periods enforced, all tests pass, `npm run check` clean
 
 ## PHASE 13 — Backup & Restore
 - [ ] Add `export_database` Rust command (SQLite backup API to user-chosen path)
@@ -228,8 +228,8 @@
 
 ---
 
-## CURRENT PHASE: 12
-## LAST COMPLETED CHECK: Phase 11 — transaction register, 41 tests pass (2026-04-05)
+## CURRENT PHASE: 13
+## LAST COMPLETED CHECK: Phase 12 — editing, voiding, audit trail, 49 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (scoped, not scheduled)
