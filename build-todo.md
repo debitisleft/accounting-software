@@ -65,7 +65,19 @@
 - [x] CHECK: No TypeScript errors (`npx tsc --noEmit`)
 - [x] CHECK: All Vitest tests still passing
 
+## PHASE 8 — Architecture Migration (Dexie → rusqlite)
+- [x] Add rusqlite to src-tauri/Cargo.toml
+- [x] Create src-tauri/src/db.rs (init, tables, seed)
+- [x] Create src-tauri/src/commands.rs (10 Tauri commands)
+- [x] Balance validation enforced in Rust
+- [x] Create src/lib/api.ts (single invoke() layer)
+- [x] Rewire all 5 UI components to api.ts
+- [x] Replace Dexie tests with MockApi tests
+- [x] Remove Dexie and fake-indexeddb
+- [x] Verify data persists across app restarts
+- [x] CHECK: npm run tauri dev opens as desktop window with data surviving close and reopen
+
 ---
-## CURRENT PHASE: COMPLETE
-## LAST COMPLETED CHECK: Phase 7 — 19 tests pass, all integration checks verified (2026-04-05)
+## CURRENT PHASE: COMPLETE (8 phases)
+## LAST COMPLETED CHECK: Phase 8 — rusqlite migration, 19 tests pass, desktop window confirmed (2026-04-05)
 ## BLOCKING ISSUES: None
