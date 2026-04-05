@@ -43,12 +43,12 @@
 - [x] CHECK: `npx vitest run` — ALL tests must pass before Phase 5
 
 ## PHASE 5 — Core UI Components
-- [ ] AccountsListPage.tsx — list all accounts with current balance
-- [ ] JournalEntryForm.tsx — multi-row entry with live balance indicator
-- [ ] Balance indicator turns green only when debits === credits
-- [ ] Save button disabled until entries balance
-- [ ] Dollar input converts to cents on submit
-- [ ] CHECK: Manually enter a sample transaction and verify it saves
+- [x] AccountsListPage.tsx — list all accounts with current balance
+- [x] JournalEntryForm.tsx — multi-row entry with live balance indicator
+- [x] Balance indicator turns green only when debits === credits
+- [x] Save button disabled until entries balance
+- [x] Dollar input converts to cents on submit
+- [x] CHECK: Manually enter a sample transaction and verify it saves
 
 ## PHASE 6 — Reports
 - [ ] TrialBalance.tsx — all accounts, debit/credit columns
@@ -66,6 +66,6 @@
 - [ ] CHECK: All Vitest tests still passing
 
 ---
-## CURRENT PHASE: 5
-## LAST COMPLETED CHECK: Phase 4 — 14 tests pass, all accounting rules verified (2026-04-05)
+## CURRENT PHASE: 6
+## LAST COMPLETED CHECK: Phase 5 — UI renders, journal entry saves, dev server runs (2026-04-05)
 ## BLOCKING ISSUES: None

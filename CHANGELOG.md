@@ -1,8 +1,20 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 4 — Complete
+## STATUS: Phase 5 — Complete
 
 ## COMPLETED
+
+### Phase 5 — Core UI Components (2026-04-05)
+- Created `src/db/browser-connection.ts` using sql.js (WASM SQLite) for in-browser database
+- Created `src/db/DatabaseProvider.tsx` — React context providing db + refresh/version for re-renders
+- Created `src/components/AccountsListPage.tsx` — lists all 26 accounts grouped by type with balances
+- Created `src/components/JournalEntryForm.tsx` — multi-row entry with live balance indicator
+- Balance indicator: green when balanced, red when unbalanced, grey when empty
+- Save button disabled until entries balance AND all fields filled
+- Dollar input → cents conversion using Math.round(amount * 100)
+- Updated App.tsx with tab navigation (Accounts, Journal Entry, Reports)
+- Decision: used sql.js (WASM) instead of better-sqlite3 for browser compatibility
+- AppDatabase type changed to BaseSQLiteDatabase to support both drivers
 
 ### Phase 4 — Engine Unit Tests (2026-04-05)
 - Created `src/__tests__/accounting.test.ts` with 7 tests covering all required accounting rules

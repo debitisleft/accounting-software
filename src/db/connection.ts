@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3'
 import { drizzle } from 'drizzle-orm/better-sqlite3'
+import { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core'
 import * as schema from './schema'
 
 export function createDatabase(path: string = 'bookkeeping.db') {
@@ -10,4 +11,5 @@ export function createDatabase(path: string = 'bookkeeping.db') {
   return { db, sqlite }
 }
 
-export type AppDatabase = ReturnType<typeof createDatabase>['db']
+/** Works with both better-sqlite3 and sql.js Drizzle instances */
+export type AppDatabase = BaseSQLiteDatabase<'sync', unknown, typeof schema>
