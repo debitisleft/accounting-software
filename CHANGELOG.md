@@ -81,8 +81,12 @@
 - Copied `sql-wasm.wasm` from `node_modules/sql.js/dist/` to `public/`
 - Changed `locateFile` from external CDN to local: `(file) => \`/${file}\``
 - Added `optimizeDeps.exclude: ['sql.js']` to vite.config.ts
-- Added COOP/COEP headers for SharedArrayBuffer support
 - Root cause: browser couldn't fetch WASM from sql.js.org CDN
+
+### Fix: sql.js ESM import / COOP-COEP headers (2026-04-05)
+- Replaced `server.headers` with middleware plugin for COOP/COEP headers (more reliable)
+- Added `include: []` to optimizeDeps to prevent Vite pre-bundling sql.js CJS as ESM
+- Root cause: Vite pre-bundling converted sql.js CJS into broken ESM with no default export
 
 ## KNOWN ISSUES
 (none)
