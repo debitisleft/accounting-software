@@ -10,7 +10,7 @@ import { accounts, transactions, journalEntries } from './schema'
  */
 export async function createBrowserDatabase() {
   const SQL = await initSqlJs({
-    locateFile: (file: string) => `https://sql.js.org/dist/${file}`,
+    locateFile: (file: string) => `/${file}`,
   })
 
   const sqlite = new SQL.Database()

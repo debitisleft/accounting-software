@@ -77,5 +77,12 @@
 - `npm create tauri-app@latest` fails in non-interactive terminal — use `create-vite` + `tauri init` instead
 - `accounts._.name` Drizzle internal API doesn't exist in drizzle-orm — use `getTableName()` from `drizzle-orm` instead
 
+### Fix: sql.js WASM loading error (2026-04-05)
+- Copied `sql-wasm.wasm` from `node_modules/sql.js/dist/` to `public/`
+- Changed `locateFile` from external CDN to local: `(file) => \`/${file}\``
+- Added `optimizeDeps.exclude: ['sql.js']` to vite.config.ts
+- Added COOP/COEP headers for SharedArrayBuffer support
+- Root cause: browser couldn't fetch WASM from sql.js.org CDN
+
 ## KNOWN ISSUES
 (none)
