@@ -17,12 +17,12 @@
 - [x] CHECK: `npm run dev` opens without console errors
 
 ## PHASE 2 — Database Schema
-- [ ] Create schema.ts with accounts, transactions, journal_entries tables
-- [ ] Add check constraint: SUM(debit) = SUM(credit) per transaction
-- [ ] All monetary columns are INTEGER (cents), not REAL or FLOAT
-- [ ] Run Drizzle migration
-- [ ] Seed default chart of accounts (Assets, Liabilities, Equity, Revenue, Expenses)
-- [ ] CHECK: Query seeded accounts — confirm at least 20 default accounts exist
+- [x] Create schema.ts with accounts, transactions, journal_entries tables
+- [x] Add check constraint: SUM(debit) = SUM(credit) per transaction
+- [x] All monetary columns are INTEGER (cents), not REAL or FLOAT
+- [x] Run Drizzle migration
+- [x] Seed default chart of accounts (Assets, Liabilities, Equity, Revenue, Expenses)
+- [x] CHECK: Query seeded accounts — confirm at least 20 default accounts exist
 
 ## PHASE 3 — Accounting Engine
 - [ ] Create /src/lib/accounting.ts
@@ -66,6 +66,6 @@
 - [ ] CHECK: All Vitest tests still passing
 
 ---
-## CURRENT PHASE: 2
-## LAST COMPLETED CHECK: Phase 1 — npm run check passes (2026-04-05)
+## CURRENT PHASE: 3
+## LAST COMPLETED CHECK: Phase 2 — 7 tests pass, 26 seeded accounts, all INTEGER cents (2026-04-05)
 ## BLOCKING ISSUES: None

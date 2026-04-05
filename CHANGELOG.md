@@ -1,8 +1,18 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 1 — Complete
+## STATUS: Phase 2 — Complete
 
 ## COMPLETED
+
+### Phase 2 — Database Schema (2026-04-05)
+- Created `src/db/schema.ts` with accounts, transactions, journal_entries tables using Drizzle ORM
+- All monetary columns (debit, credit) are INTEGER (cents) — never float
+- CHECK constraints enforce non-negative debit/credit values
+- Created `src/db/migrate.ts` for table creation from raw SQL (IF NOT EXISTS)
+- Created `src/db/connection.ts` for database connection factory
+- Created `src/db/seed.ts` with 26 default accounts across all 5 types
+- 7 tests pass including seed verification, integer cents validation, CHECK constraint enforcement
+- Fix: `accounts._.name` Drizzle internal API doesn't work; switched to `getTableName()` utility
 
 ### Phase 1 — Project Scaffold (2026-04-05)
 - Scaffolded Vite + React + TypeScript project, then added Tauri v2 on top
@@ -16,6 +26,7 @@
 
 ## FAILED APPROACHES
 - `npm create tauri-app@latest` fails in non-interactive terminal — use `create-vite` + `tauri init` instead
+- `accounts._.name` Drizzle internal API doesn't exist in drizzle-orm — use `getTableName()` from `drizzle-orm` instead
 
 ## KNOWN ISSUES
 (none)
