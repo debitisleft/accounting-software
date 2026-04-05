@@ -64,10 +64,12 @@ const shortLabels: Record<Page, string> = {
 export function AppShell({
   activePage,
   onNavigate,
+  onCloseFile,
   children,
 }: {
   activePage: Page
   onNavigate: (page: Page) => void
+  onCloseFile?: () => void
   children: ReactNode
 }) {
   const [collapsed, setCollapsed] = useState(false)
@@ -182,6 +184,26 @@ export function AppShell({
           >
             {collapsed ? 'S' : 'Settings'}
           </button>
+          {onCloseFile && (
+            <button
+              onClick={onCloseFile}
+              title={collapsed ? 'Close File' : undefined}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: collapsed ? 'center' : 'left',
+                padding: collapsed ? '10px 4px' : '10px 16px',
+                border: 'none',
+                background: 'transparent',
+                color: '#888',
+                fontSize: '12px',
+                cursor: 'pointer',
+                borderLeft: '3px solid transparent',
+              }}
+            >
+              {collapsed ? 'X' : 'Close File'}
+            </button>
+          )}
         </div>
       </nav>
 

@@ -1,24 +1,57 @@
 use rusqlite::{Connection, Result, params};
-use std::path::PathBuf;
 use uuid::Uuid;
 use chrono::Utc;
+use std::path::Path;
 
-/// Initialize the database at the app data directory.
-/// Creates all tables and seeds default accounts.
-pub fn init_db(app_data_dir: PathBuf) -> Result<Connection> {
-    std::fs::create_dir_all(&app_data_dir)
-        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-
-    let db_path = app_data_dir.join("bookkeeping.db");
-    let conn = Connection::open(db_path)?;
-
+/// Create a new .sqlite book file at the given path.
+/// Sets up schema, seeds default accounts, and stores company_name in settings.
+pub fn create_book_file(path: &str, company_name: &str) -> Result<Connection> {
+    let conn = Connection::open(path)?;
     conn.execute_batch("PRAGMA journal_mode=WAL;")?;
     conn.execute_batch("PRAGMA foreign_keys=ON;")?;
 
     create_tables(&conn)?;
+    run_migrations(&conn)?;
+    seed_default_settings(&conn, company_name)?;
     seed_accounts(&conn)?;
 
     Ok(conn)
+}
+
+/// Open an existing .sqlite book file. Validates expected tables exist.
+pub fn open_book_file(path: &str) -> std::result::Result<Connection, String> {
+    if !Path::new(path).exists() {
+        return Err(format!("File not found: {}", path));
+    }
+
+    let conn = Connection::open(path).map_err(|e| format!("Failed to open database: {}", e))?;
+    conn.execute_batch("PRAGMA journal_mode=WAL;").map_err(|e| e.to_string())?;
+    conn.execute_batch("PRAGMA foreign_keys=ON;").map_err(|e| e.to_string())?;
+
+    // Validate expected tables
+    let required_tables = ["accounts", "transactions", "journal_entries", "settings"];
+    for table in required_tables {
+        let exists: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name=?1",
+            params![table],
+            |row| row.get(0),
+        ).map_err(|e| e.to_string())?;
+        if !exists {
+            return Err(format!("Invalid book file: missing '{}' table", table));
+        }
+    }
+
+    // Run any pending migrations on older files
+    run_migrations(&conn).map_err(|e| e.to_string())?;
+
+    Ok(conn)
+}
+
+/// Close the book file cleanly (WAL checkpoint).
+pub fn close_book_file(conn: &Connection) -> std::result::Result<(), String> {
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .map_err(|e| format!("WAL checkpoint failed: {}", e))?;
+    Ok(())
 }
 
 fn create_tables(conn: &Connection) -> Result<()> {
@@ -81,9 +114,17 @@ fn create_tables(conn: &Connection) -> Result<()> {
             confidence INTEGER NOT NULL DEFAULT 0,
             times_confirmed INTEGER NOT NULL DEFAULT 0
         );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
         "
     )?;
+    Ok(())
+}
 
+fn run_migrations(conn: &Connection) -> Result<()> {
     // Migration: add is_void and void_of columns if not present
     let cols: Vec<String> = conn
         .prepare("PRAGMA table_info(transactions)")?
@@ -105,19 +146,14 @@ fn create_tables(conn: &Connection) -> Result<()> {
         conn.execute_batch("ALTER TABLE audit_log ADD COLUMN transaction_id TEXT;")?;
     }
 
-    // Settings table
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        );"
-    )?;
+    Ok(())
+}
 
-    // Seed default settings
+fn seed_default_settings(conn: &Connection, company_name: &str) -> Result<()> {
     let setting_count: i64 = conn.query_row("SELECT COUNT(*) FROM settings", [], |row| row.get(0))?;
     if setting_count == 0 {
         let defaults = [
-            ("company_name", "My Company"),
+            ("company_name", company_name),
             ("fiscal_year_start_month", "1"),
             ("currency_symbol", "$"),
             ("date_format", "YYYY-MM-DD"),
@@ -126,7 +162,6 @@ fn create_tables(conn: &Connection) -> Result<()> {
             conn.execute("INSERT INTO settings (key, value) VALUES (?1, ?2)", params![key, value])?;
         }
     }
-
     Ok(())
 }
 
@@ -145,7 +180,6 @@ fn seed_accounts(conn: &Connection) -> Result<()> {
 
     let now = Utc::now().timestamp();
     let accounts: Vec<(&str, &str, &str)> = vec![
-        // ASSETS
         ("1000", "Cash", "ASSET"),
         ("1010", "Checking Account", "ASSET"),
         ("1020", "Savings Account", "ASSET"),
@@ -154,21 +188,17 @@ fn seed_accounts(conn: &Connection) -> Result<()> {
         ("1300", "Prepaid Expenses", "ASSET"),
         ("1500", "Equipment", "ASSET"),
         ("1510", "Accumulated Depreciation", "ASSET"),
-        // LIABILITIES
         ("2000", "Accounts Payable", "LIABILITY"),
         ("2100", "Credit Card Payable", "LIABILITY"),
         ("2200", "Wages Payable", "LIABILITY"),
         ("2300", "Sales Tax Payable", "LIABILITY"),
         ("2500", "Notes Payable", "LIABILITY"),
-        // EQUITY
         ("3000", "Owner's Equity", "EQUITY"),
         ("3100", "Owner's Draws", "EQUITY"),
         ("3200", "Retained Earnings", "EQUITY"),
-        // REVENUE
         ("4000", "Sales Revenue", "REVENUE"),
         ("4100", "Service Revenue", "REVENUE"),
         ("4200", "Interest Income", "REVENUE"),
-        // EXPENSES
         ("5000", "Cost of Goods Sold", "EXPENSE"),
         ("5100", "Rent Expense", "EXPENSE"),
         ("5200", "Utilities Expense", "EXPENSE"),

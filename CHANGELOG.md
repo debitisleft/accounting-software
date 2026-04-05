@@ -1,16 +1,32 @@
 # Bookkeeping App — Changelog
 
-## STATUS: ALL 17 PHASES COMPLETE
+## STATUS: Phase 18 Complete — working on Phase 19
 
 ## CURRENT STATE (2026-04-05)
-- 17 phases complete, 75 tests passing
-- 30+ Rust commands, full MockApi coverage
-- Features: chart of accounts CRUD, journal entry, transaction register with edit/void, 
-  audit trail, period locking, backup/restore, CSV export, settings/preferences, 
-  report drill-downs with account ledger, print-friendly reports
+- 18 phases complete, 85 tests passing
+- 35+ Rust commands, full MockApi coverage
+- Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry,
+  transaction register with edit/void, audit trail, period locking, backup/restore, CSV export,
+  settings/preferences, report drill-downs with account ledger, print-friendly reports
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 18 — File-Based Architecture (.sqlite files) (2026-04-05)
+**Major architectural change:** App now works like QuickBooks Desktop — each company is its own .sqlite file.
+- Refactored db.rs: `init_db()` replaced with `create_book_file()`, `open_book_file()`, `close_book_file()`
+- DbState changed from `Mutex<Connection>` to `Mutex<Option<Connection>>` — starts as None
+- Added 7 new Tauri commands: create_new_file, open_file, close_file, get_recent_files, open_recent_file, remove_recent_file, is_file_open
+- All existing commands now guard with `get_conn()` helper — return "No file is open" if None
+- Recent files tracked in `{app_data_dir}/recent-files.json` (max 10, most recent first)
+- Created WelcomeScreen.tsx: new file creation, open existing, recent files list
+- App.tsx: routes between WelcomeScreen (no file) and AppShell (file open)
+- AppShell: added "Close File" button in sidebar
+- MockApi: added file lifecycle (createNewFile/openFile/closeFile), guardFileOpen() check, resetData()
+- 10 new tests: create file, seed accounts, company name in settings, open valid, reject missing,
+  guard when closed, switch files, recent list updates, remove recent
+- 85 total tests pass, typecheck + cargo clean
+- Data ownership principle: .sqlite is standard, openable in DB Browser, Python, R, sqlite3 CLI — no lock-in
 
 ### Phase 17 — Report Enhancements (2026-04-05)
 - Added `get_account_ledger` Rust command: transactions for one account, running balance, pagination, date filter

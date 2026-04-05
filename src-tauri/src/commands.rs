@@ -3,8 +3,180 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use uuid::Uuid;
 use chrono::Utc;
+use std::sync::MutexGuard;
 
 use crate::DbState;
+
+/// Lock the connection mutex and return the guard. Errors if no file is open.
+fn get_conn(db: &DbState) -> Result<MutexGuard<'_, Option<rusqlite::Connection>>, String> {
+    let guard = db.conn.lock().map_err(|e| e.to_string())?;
+    if guard.is_none() {
+        return Err("No file is open".to_string());
+    }
+    Ok(guard)
+}
+
+/// Recent files JSON management
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RecentFile {
+    pub path: String,
+    pub company_name: String,
+    pub last_opened: String,
+}
+
+fn recent_files_path(app_data_dir: &str) -> String {
+    format!("{}/recent-files.json", app_data_dir)
+}
+
+fn load_recent_files(app_data_dir: &str) -> Vec<RecentFile> {
+    let path = recent_files_path(app_data_dir);
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_recent_files(app_data_dir: &str, files: &[RecentFile]) {
+    let path = recent_files_path(app_data_dir);
+    if let Ok(json) = serde_json::to_string_pretty(files) {
+        std::fs::write(path, json).ok();
+    }
+}
+
+fn add_to_recent(app_data_dir: &str, file_path: &str, company_name: &str) {
+    let mut recent = load_recent_files(app_data_dir);
+    recent.retain(|f| f.path != file_path);
+    recent.insert(0, RecentFile {
+        path: file_path.to_string(),
+        company_name: company_name.to_string(),
+        last_opened: Utc::now().to_rfc3339(),
+    });
+    if recent.len() > 10 {
+        recent.truncate(10);
+    }
+    save_recent_files(app_data_dir, &recent);
+}
+
+// ── Phase 18: File Management Commands ───────────────────
+
+#[derive(Debug, Serialize)]
+pub struct FileInfo {
+    pub path: String,
+    pub company_name: String,
+}
+
+#[tauri::command]
+pub async fn create_new_file(
+    db: State<'_, DbState>,
+    path: String,
+    company_name: String,
+) -> Result<FileInfo, String> {
+    // Close any currently open file
+    {
+        let mut conn_guard = db.conn.lock().map_err(|e| e.to_string())?;
+        if let Some(ref c) = *conn_guard {
+            crate::db::close_book_file(c).ok();
+        }
+        *conn_guard = None;
+        let mut path_guard = db.current_path.lock().map_err(|e| e.to_string())?;
+        *path_guard = None;
+    }
+
+    let conn = crate::db::create_book_file(&path, &company_name)
+        .map_err(|e| format!("Failed to create file: {}", e))?;
+
+    {
+        let mut conn_guard = db.conn.lock().map_err(|e| e.to_string())?;
+        *conn_guard = Some(conn);
+        let mut path_guard = db.current_path.lock().map_err(|e| e.to_string())?;
+        *path_guard = Some(path.clone());
+    }
+
+    add_to_recent(&db.app_data_dir, &path, &company_name);
+
+    Ok(FileInfo { path, company_name })
+}
+
+#[tauri::command]
+pub async fn open_file(
+    db: State<'_, DbState>,
+    path: String,
+) -> Result<FileInfo, String> {
+    // Close any currently open file
+    {
+        let mut conn_guard = db.conn.lock().map_err(|e| e.to_string())?;
+        if let Some(ref c) = *conn_guard {
+            crate::db::close_book_file(c).ok();
+        }
+        *conn_guard = None;
+        let mut path_guard = db.current_path.lock().map_err(|e| e.to_string())?;
+        *path_guard = None;
+    }
+
+    let conn = crate::db::open_book_file(&path)?;
+
+    // Read company name from the file's settings
+    let company_name: String = conn.query_row(
+        "SELECT value FROM settings WHERE key = 'company_name'",
+        [],
+        |row| row.get(0),
+    ).unwrap_or_else(|_| "Unknown".to_string());
+
+    {
+        let mut conn_guard = db.conn.lock().map_err(|e| e.to_string())?;
+        *conn_guard = Some(conn);
+        let mut path_guard = db.current_path.lock().map_err(|e| e.to_string())?;
+        *path_guard = Some(path.clone());
+    }
+
+    add_to_recent(&db.app_data_dir, &path, &company_name);
+
+    Ok(FileInfo { path, company_name })
+}
+
+#[tauri::command]
+pub async fn close_file(db: State<'_, DbState>) -> Result<(), String> {
+    let mut conn_guard = db.conn.lock().map_err(|e| e.to_string())?;
+    if let Some(ref c) = *conn_guard {
+        crate::db::close_book_file(c)?;
+    }
+    *conn_guard = None;
+    let mut path_guard = db.current_path.lock().map_err(|e| e.to_string())?;
+    *path_guard = None;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_recent_files(db: State<'_, DbState>) -> Result<Vec<RecentFile>, String> {
+    Ok(load_recent_files(&db.app_data_dir))
+}
+
+#[tauri::command]
+pub async fn open_recent_file(
+    db: State<'_, DbState>,
+    path: String,
+) -> Result<FileInfo, String> {
+    // Delegate to open_file — if it fails (missing file), return error
+    // The caller can then offer to remove it from recent list
+    open_file(db, path).await
+}
+
+#[tauri::command]
+pub async fn remove_recent_file(
+    db: State<'_, DbState>,
+    path: String,
+) -> Result<(), String> {
+    let mut recent = load_recent_files(&db.app_data_dir);
+    recent.retain(|f| f.path != path);
+    save_recent_files(&db.app_data_dir, &recent);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn is_file_open(db: State<'_, DbState>) -> Result<bool, String> {
+    let guard = db.conn.lock().map_err(|e| e.to_string())?;
+    Ok(guard.is_some())
+}
 
 // ── Structs ──────────────────────────────────────────────
 
@@ -112,7 +284,8 @@ fn is_debit_normal(acct_type: &str) -> bool {
 
 #[tauri::command]
 pub async fn get_accounts(db: State<'_, DbState>) -> Result<Vec<Account>, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
     let mut stmt = conn
         .prepare("SELECT id, code, name, type, normal_balance, parent_id, is_active, created_at FROM accounts WHERE is_active = 1 ORDER BY code")
         .map_err(|e| e.to_string())?;
@@ -161,7 +334,8 @@ pub async fn create_transaction(
         return Err("Transaction must have non-zero amounts".to_string());
     }
 
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
     let tx_id = Uuid::new_v4().to_string();
     let now = Utc::now().timestamp();
 
@@ -201,7 +375,8 @@ pub async fn get_account_balance(
     account_id: String,
     as_of_date: Option<String>,
 ) -> Result<i64, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     let acct_type: String = conn
         .query_row("SELECT type FROM accounts WHERE id = ?1", params![account_id], |row| row.get(0))
@@ -239,7 +414,8 @@ pub async fn get_trial_balance(
     db: State<'_, DbState>,
     as_of_date: Option<String>,
 ) -> Result<TrialBalanceResult, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     let query = match &as_of_date {
         Some(date) => format!(
@@ -317,7 +493,8 @@ pub async fn get_income_statement(
     start_date: String,
     end_date: String,
 ) -> Result<IncomeStatementResult, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     let mut stmt = conn.prepare(
         "SELECT a.id, a.code, a.name, a.type,
@@ -374,7 +551,8 @@ pub async fn get_balance_sheet(
     db: State<'_, DbState>,
     as_of_date: String,
 ) -> Result<BalanceSheetResult, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     let mut stmt = conn.prepare(
         "SELECT a.id, a.code, a.name, a.type,
@@ -440,7 +618,8 @@ pub async fn get_transactions(
     start_date: Option<String>,
     end_date: Option<String>,
 ) -> Result<Vec<TransactionWithEntries>, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     let mut where_clauses = Vec::new();
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -520,7 +699,8 @@ pub async fn update_journal_entry(
     field: String,
     new_value: String,
 ) -> Result<(), String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     // Check if period is locked for this entry
     let (account_id, tx_date): (String, String) = conn.query_row(
@@ -575,7 +755,8 @@ pub async fn lock_period(
     period_start: String,
     period_end: String,
 ) -> Result<(), String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
     let id = Uuid::new_v4().to_string();
     let now = Utc::now().timestamp();
     conn.execute(
@@ -591,7 +772,8 @@ pub async fn check_period_locked(
     account_id: String,
     date: String,
 ) -> Result<bool, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
     let locked: bool = conn.query_row(
         "SELECT COUNT(*) > 0 FROM reconciliation_periods WHERE account_id = ?1 AND period_start <= ?2 AND period_end >= ?2 AND is_locked = 1",
         params![account_id, date],
@@ -611,10 +793,11 @@ pub struct AppMetadata {
 
 #[tauri::command]
 pub async fn get_app_metadata(db: State<'_, DbState>) -> Result<AppMetadata, String> {
+    let path_guard = db.current_path.lock().map_err(|e| e.to_string())?;
     Ok(AppMetadata {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        db_path: db.db_path.clone(),
-        last_backup_date: None, // Will be populated when backup feature is added
+        db_path: path_guard.clone().unwrap_or_default(),
+        last_backup_date: None,
     })
 }
 
@@ -632,7 +815,8 @@ pub struct DashboardSummary {
 
 #[tauri::command]
 pub async fn get_dashboard_summary(db: State<'_, DbState>) -> Result<DashboardSummary, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     let mut totals_stmt = conn.prepare(
         "SELECT a.type,
@@ -749,7 +933,8 @@ pub async fn create_account(
         return Err("Account code cannot be empty".to_string());
     }
 
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     // Check unique code
     let exists: bool = conn.query_row(
@@ -780,7 +965,8 @@ pub async fn update_account(
     name: Option<String>,
     code: Option<String>,
 ) -> Result<(), String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     // Verify account exists
     let _exists: String = conn.query_row(
@@ -826,7 +1012,8 @@ pub async fn deactivate_account(
     db: State<'_, DbState>,
     account_id: String,
 ) -> Result<(), String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     let acct_type: String = conn.query_row(
         "SELECT type FROM accounts WHERE id = ?1",
@@ -864,7 +1051,8 @@ pub async fn reactivate_account(
     db: State<'_, DbState>,
     account_id: String,
 ) -> Result<(), String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     let _exists: String = conn.query_row(
         "SELECT id FROM accounts WHERE id = ?1",
@@ -918,7 +1106,8 @@ pub async fn list_transactions(
     account_id: Option<String>,
     memo_search: Option<String>,
 ) -> Result<ListTransactionsResult, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     let mut where_clauses: Vec<String> = Vec::new();
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -991,7 +1180,8 @@ pub async fn get_transaction_detail(
     db: State<'_, DbState>,
     transaction_id: String,
 ) -> Result<TransactionWithEntries, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     let mut tx = conn.query_row(
         "SELECT id, date, description, reference, is_locked, created_at, is_void, void_of FROM transactions WHERE id = ?1",
@@ -1023,7 +1213,8 @@ pub async fn count_transactions(
     account_id: Option<String>,
     memo_search: Option<String>,
 ) -> Result<i64, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     let mut where_clauses: Vec<String> = Vec::new();
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -1117,7 +1308,8 @@ pub async fn update_transaction(
     description: Option<String>,
     reference: Option<String>,
 ) -> Result<(), String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     if is_transaction_locked(&conn, &transaction_id)? {
         return Err("Cannot edit: transaction is in a locked period".to_string());
@@ -1164,7 +1356,8 @@ pub async fn update_transaction_lines(
     transaction_id: String,
     entries: Vec<JournalEntryInput>,
 ) -> Result<(), String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     if is_transaction_locked(&conn, &transaction_id)? {
         return Err("Cannot edit: transaction is in a locked period".to_string());
@@ -1225,7 +1418,8 @@ pub async fn void_transaction(
     db: State<'_, DbState>,
     transaction_id: String,
 ) -> Result<String, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     if is_transaction_locked(&conn, &transaction_id)? {
         return Err("Cannot void: transaction is in a locked period".to_string());
@@ -1313,7 +1507,8 @@ pub async fn get_audit_log(
     db: State<'_, DbState>,
     transaction_id: String,
 ) -> Result<Vec<AuditLogEntry>, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     let mut stmt = conn.prepare(
         "SELECT id, transaction_id, field_changed, old_value, new_value, changed_at
@@ -1352,7 +1547,8 @@ pub async fn export_database(
     db: State<'_, DbState>,
     destination: String,
 ) -> Result<ExportResult, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     // Use SQLite backup API for safe copy
     conn.execute("VACUUM INTO ?1", params![destination])
@@ -1402,21 +1598,26 @@ pub async fn import_database(
     drop(source_conn);
 
     // Replace the current database
-    let mut conn = db.conn.lock().map_err(|e| e.to_string())?;
-    let db_path = db.db_path.clone();
+    let mut conn_guard = db.conn.lock().map_err(|e| e.to_string())?;
+    let path_guard = db.current_path.lock().map_err(|e| e.to_string())?;
+    let db_path = path_guard.as_ref().ok_or("No file is open")?.clone();
+    drop(path_guard);
 
     // Close current connection by replacing it
-    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").ok();
+    if let Some(ref c) = *conn_guard {
+        c.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").ok();
+    }
 
     // Copy source over the current db
     std::fs::copy(&source, &db_path)
         .map_err(|e| format!("Failed to replace database: {}", e))?;
 
     // Reopen
-    *conn = rusqlite::Connection::open(&db_path)
+    let new_conn = rusqlite::Connection::open(&db_path)
         .map_err(|e| format!("Failed to reopen database: {}", e))?;
-    conn.execute_batch("PRAGMA journal_mode=WAL;").ok();
-    conn.execute_batch("PRAGMA foreign_keys=ON;").ok();
+    new_conn.execute_batch("PRAGMA journal_mode=WAL;").ok();
+    new_conn.execute_batch("PRAGMA foreign_keys=ON;").ok();
+    *conn_guard = Some(new_conn);
 
     Ok(ImportResult { account_count, transaction_count })
 }
@@ -1439,8 +1640,10 @@ pub struct AutoBackupResult {
 pub async fn auto_backup(
     db: State<'_, DbState>,
 ) -> Result<AutoBackupResult, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
-    let db_path = std::path::Path::new(&db.db_path);
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    let current_path = db.current_path.lock().map_err(|e| e.to_string())?.clone().ok_or("No file is open")?;
+    let db_path = std::path::Path::new(&current_path);
     let backups_dir = db_path.parent()
         .ok_or("Cannot determine backup directory")?
         .join("backups");
@@ -1482,7 +1685,8 @@ pub async fn auto_backup(
 pub async fn list_backups(
     db: State<'_, DbState>,
 ) -> Result<Vec<BackupInfo>, String> {
-    let db_path = std::path::Path::new(&db.db_path);
+    let current_path = db.current_path.lock().map_err(|e| e.to_string())?.clone().ok_or("No file is open")?;
+    let db_path = std::path::Path::new(&current_path);
     let backups_dir = db_path.parent()
         .ok_or("Cannot determine backup directory")?
         .join("backups");
@@ -1541,7 +1745,8 @@ pub async fn export_csv(
     account_id: Option<String>,
     memo_search: Option<String>,
 ) -> Result<String, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     match export_type.as_str() {
         "ChartOfAccounts" => {
@@ -1750,7 +1955,8 @@ pub async fn get_setting(
     db: State<'_, DbState>,
     key: String,
 ) -> Result<Option<String>, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
     let result: Option<String> = conn.query_row(
         "SELECT value FROM settings WHERE key = ?1",
         params![key],
@@ -1765,7 +1971,8 @@ pub async fn set_setting(
     key: String,
     value: String,
 ) -> Result<(), String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
         params![key, value],
@@ -1777,7 +1984,8 @@ pub async fn set_setting(
 pub async fn get_all_settings(
     db: State<'_, DbState>,
 ) -> Result<std::collections::HashMap<String, String>, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
     let mut stmt = conn.prepare("SELECT key, value FROM settings")
         .map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| {
@@ -1806,7 +2014,8 @@ pub async fn lock_period_global(
     db: State<'_, DbState>,
     end_date: String,
 ) -> Result<(), String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     // Check no existing lock is after this date (sequential enforcement)
     let existing_after: bool = conn.query_row(
@@ -1834,7 +2043,8 @@ pub async fn lock_period_global(
 pub async fn unlock_period_global(
     db: State<'_, DbState>,
 ) -> Result<(), String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     let latest_id: Option<String> = conn.query_row(
         "SELECT id FROM reconciliation_periods WHERE account_id = 'GLOBAL' AND is_locked = 1 ORDER BY period_end DESC LIMIT 1",
@@ -1856,7 +2066,8 @@ pub async fn unlock_period_global(
 pub async fn list_locked_periods_global(
     db: State<'_, DbState>,
 ) -> Result<Vec<LockedPeriod>, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
     let mut stmt = conn.prepare(
         "SELECT id, period_end, locked_at FROM reconciliation_periods WHERE account_id = 'GLOBAL' AND is_locked = 1 ORDER BY period_end DESC"
     ).map_err(|e| e.to_string())?;
@@ -1909,7 +2120,8 @@ pub async fn get_account_ledger(
     offset: Option<i64>,
     limit: Option<i64>,
 ) -> Result<AccountLedgerResult, String> {
-    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
 
     let acct = conn.query_row(
         "SELECT id, code, name, type FROM accounts WHERE id = ?1",

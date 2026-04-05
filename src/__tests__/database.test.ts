@@ -9,9 +9,14 @@ describe('database schema and seed', () => {
   })
 
   it('starts with empty tables', () => {
-    expect(mock.getAccounts()).toEqual([])
+    // No file open yet — direct array access
+    expect(mock.accounts).toEqual([])
     expect(mock.transactions).toEqual([])
     expect(mock.entries).toEqual([])
+  })
+
+  it('getAccounts throws when no file is open', () => {
+    expect(() => mock.getAccounts()).toThrow('No file is open')
   })
 
   it('seeds at least 20 default accounts', () => {

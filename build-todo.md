@@ -78,9 +78,7 @@
 - [x] Verify data persists across app restarts
 - [x] CHECK: npm run tauri dev opens as desktop window with data surviving close and reopen
 
----
-
-## PHASE 9 — App Shell & Navigation
+## PHASE 9 — App Shell & Navigation ✅
 - [x] Add `get_app_metadata` Rust command (version, db path, last backup date)
 - [x] Add `get_dashboard_summary` Rust command (totals for assets, liabilities, equity, revenue, expenses, net income)
 - [x] Add both commands to api.ts + MockApi
@@ -91,9 +89,9 @@
 - [x] Sidebar collapses to icons on narrow windows
 - [x] Test: get_dashboard_summary returns correct totals
 - [x] Test: summary totals match individual report calculations
-- [ ] CHECK: App opens with sidebar, dashboard shows data, all tests pass, `npm run check` clean
+- [x] CHECK: App opens with sidebar, dashboard shows data, all tests pass, `npm run check` clean
 
-## PHASE 10 — Account Management (CRUD)
+## PHASE 10 — Account Management (CRUD) ✅
 - [x] Add `is_active` column to accounts table (ALTER TABLE, default true)
 - [x] Add `create_account` Rust command (name, number, type, optional parent_id) with validation
 - [x] Add `update_account` Rust command (id, new name, new number — cannot change type)
@@ -111,7 +109,7 @@
 - [x] Test: deactivated accounts excluded from active queries
 - [x] CHECK: Can add, rename, deactivate accounts via UI, all tests pass, `npm run check` clean
 
-## PHASE 11 — Transaction Register (Read-Only)
+## PHASE 11 — Transaction Register (Read-Only) ✅
 - [x] Add `list_transactions` Rust command (pagination, sort, filters: date range, account, amount, memo)
 - [x] Add `get_transaction` Rust command (single by ID, full detail + audit history)
 - [x] Add `count_transactions` Rust command (total matching filters)
@@ -130,7 +128,7 @@
 - [x] Test: voided transactions included with is_void flag
 - [x] CHECK: Register shows all transactions, filters work, expand works, all tests pass, `npm run check` clean
 
-## PHASE 12 — Transaction Editing, Voiding & Audit Trail
+## PHASE 12 — Transaction Editing, Voiding & Audit Trail ✅
 - [x] Add `is_void` and `void_of` columns to transactions table
 - [x] Verify audit_log table has: id, transaction_id, field_changed, old_value, new_value, changed_at
 - [x] Add `update_transaction` Rust command (date, memo, reference — writes audit log, rejects if locked)
@@ -154,7 +152,7 @@
 - [x] Test: get_audit_log returns correct order
 - [x] CHECK: Can edit and void transactions, audit trail visible, locked periods enforced, all tests pass, `npm run check` clean
 
-## PHASE 13 — Backup & Restore
+## PHASE 13 — Backup & Restore ✅
 - [x] Add `export_database` Rust command (SQLite backup API to user-chosen path)
 - [x] Add `import_database` Rust command (validate, replace, reopen — returns account/transaction counts)
 - [x] Add `auto_backup` Rust command (backup to app_data_dir/backups, keep last 5)
@@ -170,7 +168,7 @@
 - [x] Test: auto_backup keeps only 5 most recent
 - [x] CHECK: Can export/import database, auto-backup works, all tests pass, `npm run check` clean
 
-## PHASE 14 — CSV Export
+## PHASE 14 — CSV Export ✅
 - [x] Add `export_csv` Rust command (type enum: TransactionRegister, TrialBalance, IncomeStatement, BalanceSheet, ChartOfAccounts)
 - [x] Amounts exported as decimal dollars (cents / 100, 2 decimal places)
 - [x] Add command to api.ts + MockApi
@@ -182,7 +180,7 @@
 - [x] Test: date filter applies to export
 - [x] CHECK: All report types export to valid CSV, amounts correct, all tests pass, `npm run check` clean
 
-## PHASE 15 — Settings & Preferences
+## PHASE 15 — Settings & Preferences ✅
 - [x] Create `settings` table: key TEXT PRIMARY KEY, value TEXT
 - [x] Seed defaults: company_name, fiscal_year_start_month, currency_symbol, date_format
 - [x] Add `get_setting`, `set_setting`, `get_all_settings` Rust commands
@@ -196,7 +194,7 @@
 - [x] Test: get_all_settings returns complete map
 - [x] CHECK: Settings save/persist, currency and dates reflected in app, all tests pass, `npm run check` clean
 
-## PHASE 16 — Period Management UI
+## PHASE 16 — Period Management UI ✅
 - [x] Add `lock_period` Rust command (end_date, validates sequential)
 - [x] Add `unlock_period` Rust command (removes most recent lock, writes audit log)
 - [x] Add `list_locked_periods` Rust command
@@ -212,7 +210,7 @@
 - [x] Test: cannot create gap in locked periods
 - [x] CHECK: Lock/unlock works via UI, visual indicators correct, all tests pass, `npm run check` clean
 
-## PHASE 17 — Report Enhancements
+## PHASE 17 — Report Enhancements ✅
 - [x] Add `get_account_ledger` Rust command (transactions for one account, running balance, pagination)
 - [x] Add command to api.ts + MockApi
 - [x] Apply currency symbol and date format from settings to all reports
@@ -228,14 +226,138 @@
 
 ---
 
-## CURRENT PHASE: COMPLETE (17 phases)
-## LAST COMPLETED CHECK: Phase 17 — report enhancements, 75 tests pass (2026-04-05)
+## PHASE 18 — File-Based Architecture (.sqlite files)
+**Goal:** The app works like QBD — each company is its own `.sqlite` file. File → New, File → Open, recent files on launch. One file open at a time. The user fully owns their data in a universal format any tool can read.
+
+### Design Principles
+- `.sqlite` is a standard format — openable in DB Browser, DBeaver, Python, R, sqlite3 CLI, anything
+- No proprietary extensions, no lock-in, no encryption barriers
+- The file IS the books — portable, copyable, email-able, inspectable
+- Radical data ownership: if the app disappears tomorrow, the user's data is still fully accessible
+
+### Rust/Backend
+- [x] Refactor db.rs: replace hardcoded `bookkeeping.db` path with dynamic connection
+  - Connection stored as `Mutex<Option<Connection>>` — starts as None
+  - `create_book_file(path, company_name)` — creates new .sqlite with schema + seed accounts + company_name in settings
+  - `open_book_file(path)` — validates expected tables exist, opens connection, sets WAL mode + foreign keys
+  - `close_book_file()` — WAL checkpoint, drops connection, sets state to None
+- [x] Add `create_new_file` Tauri command — Tauri save dialog (.sqlite filter) → create_book_file → open_book_file
+- [x] Add `open_file` Tauri command — Tauri open dialog (.sqlite filter) → open_book_file
+- [x] Add `close_file` Tauri command — close_book_file → UI returns to welcome screen
+- [x] Add `get_recent_files` Tauri command — reads recent files list from app config
+- [x] Add `open_recent_file` Tauri command — opens by path, handles missing files gracefully
+- [x] Add `remove_recent_file` Tauri command — removes entry from recent list
+- [x] Update ALL existing commands to guard: return error if no file is open
+- [x] Store recent files in `{app_data_dir}/recent-files.json` (separate from any .sqlite file):
+  - Max 10 entries, updated on every open, most recent first
+  - Schema: `[{ "path": "...", "company_name": "...", "last_opened": "..." }]`
+- [x] Add all commands to api.ts + MockApi
+
+### UI
+- [x] Create `WelcomeScreen.tsx` — shown when no file is open
+  - App name/logo at top
+  - "New Company File" button → prompts for company name → Tauri save dialog (.sqlite) → creates + opens
+  - "Open Existing File" button → Tauri open dialog (.sqlite filter) → opens
+  - Recent files list: company name, file path, last opened date — click to open
+  - Missing files in recent list: show "File not found" with option to remove from list
+- [x] Update App.tsx routing logic:
+  - No file open → WelcomeScreen
+  - File open → AppShell (sidebar + content)
+- [x] Show current company name + file path in app header/sidebar when file is open
+- [x] Add "Close File" button to sidebar (returns to WelcomeScreen)
+- [x] On app launch: always show WelcomeScreen (do NOT auto-open last file)
+
+### Tests
+- [x] Test: create_new_file creates valid .sqlite with expected tables
+- [x] Test: create_new_file seeds default chart of accounts
+- [x] Test: create_new_file stores company_name in settings table
+- [x] Test: open_file succeeds on valid .sqlite file
+- [x] Test: open_file rejects files missing expected tables
+- [x] Test: all existing commands return error when no file is open
+- [x] Test: close_file + open_file switches between files correctly
+- [x] Test: recent files list updates on open and persists
+- [x] Test: remove_recent_file removes entry from list
+
+### CHECK
+- [x] App launches to WelcomeScreen
+- [x] Can create a new .sqlite file with company name, app opens with seeded accounts
+- [x] Can close file and return to WelcomeScreen
+- [x] Can reopen from recent files list
+- [x] Can open a second .sqlite file (different company) and see different data
+- [x] All existing tests still pass (adapted for new connection model)
+- [x] `npm run check` clean
+
+---
+
+## PHASE 19 — Excel-Style Transaction Register UX
+**Goal:** Transform the transaction register into an Excel-like editing experience.
+
+- [ ] Hybrid interaction: inline editing for metadata fields (date, memo, ref), panel expansion for amounts
+- [ ] Edit mode activated by sidebar button — makes all unlocked rows editable at once
+- [ ] Multi-entry transactions always collapsed until explicitly clicked, even in edit mode
+- [ ] Period-locked and reconciled rows greyed out and non-editable at both UI and engine level
+- [ ] Silent audit logging — no confirmation dialog per edit, changes logged automatically
+- [ ] Tab key moves between editable cells (left→right, then next row)
+- [ ] Escape cancels current cell edit, restores previous value
+- [ ] Unsaved changes indicator (dot or color change) on modified rows
+- [ ] "Save All Changes" button when in edit mode (batch commit)
+- [ ] CHECK: Can enter edit mode, modify multiple transactions inline, save all, audit log reflects changes, `npm run check` clean
+
+## PHASE 20 — CSV Import with Column Mapping
+- [ ] Upload CSV → preview first 10 rows in table
+- [ ] Column mapping UI: drag/assign CSV columns to fields (date, memo, account, debit, credit)
+- [ ] Validation pass: show errors per row (missing fields, unparseable dates, unknown accounts)
+- [ ] "Import" creates transactions for valid rows, skips invalid
+- [ ] Duplicate detection: date + amount + memo match → flag as potential duplicate
+- [ ] Import summary: X imported, Y skipped, Z duplicates
+- [ ] Test: valid CSV imports correctly
+- [ ] Test: invalid rows rejected with error messages
+- [ ] Test: duplicate detection flags matches
+- [ ] CHECK: Can import a bank CSV, map columns, review errors, import clean rows, `npm run check` clean
+
+## PHASE 21 — Recurring Transactions
+- [ ] Create `recurring_templates` table (inside each .sqlite file): template of line items + recurrence rule
+- [ ] Add `create_recurring`, `list_recurring`, `update_recurring`, `pause_recurring`, `delete_recurring` Rust commands
+- [ ] Recurrence rules: weekly, monthly, quarterly, yearly, with start date and optional end date
+- [ ] On app open: check for due recurring transactions → show prompt "X recurring entries are due. Generate?"
+- [ ] "Generate" creates actual transactions from templates
+- [ ] Recurring management page: list all templates, edit, pause, delete
+- [ ] Add all commands to api.ts + MockApi
+- [ ] Test: recurring template generates correct transaction on due date
+- [ ] Test: paused template does not generate
+- [ ] Test: generated transaction has correct accounts and amounts
+- [ ] CHECK: Can create recurring template, generate due entries, pause/resume, `npm run check` clean
+
+## PHASE 22 — Bank Feed Pipeline (Plaid Integration)
+- [ ] Add Plaid API credentials to app-level config (not per-file)
+- [ ] Create `pending_bank_transactions` table (inside each .sqlite file)
+- [ ] Plaid API → normalize → deduplicate → insert into pending_bank_transactions
+- [ ] UI: pending transactions list with "Approve" flow
+- [ ] Approve: user selects account → createTransaction() fires → removes from pending
+- [ ] Dismiss: marks pending transaction as ignored
+- [ ] Auto-match: suggest account based on previous categorizations of same payee
+- [ ] Add all commands to api.ts + MockApi
+- [ ] Test: Plaid data normalizes to expected schema
+- [ ] Test: approval creates valid balanced transaction
+- [ ] Test: dismissal marks as ignored without creating transaction
+- [ ] CHECK: Can connect bank, pull transactions, approve/dismiss, all balanced, `npm run check` clean
+
+## PHASE 23 — Reconciliation Service
+- [ ] Book balance vs statement balance comparison per account per period
+- [ ] Match transactions to bank feed items (auto-match + manual match)
+- [ ] Reconciliation report: matched, unmatched, adjustments needed
+- [ ] Lock period when reconciled (uses Phase 16 period locking)
+- [ ] Reconciliation history: past reconciliations with dates and balances
+- [ ] Test: reconciliation identifies matched and unmatched items
+- [ ] Test: completing reconciliation locks the period
+- [ ] Test: locked reconciled period prevents edits
+- [ ] CHECK: Can reconcile an account, lock period, view history, `npm run check` clean
+
+---
+
+## CURRENT PHASE: 19
+## LAST COMPLETED CHECK: Phase 18 — file-based architecture, 85 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
-## FUTURE PHASES (scoped, not scheduled)
-- Phase 18: Excel-style transaction register UX (inline edit, sidebar edit mode)
-- Phase 19: CSV import with column mapping UI
-- Phase 20: Recurring transactions (templates + recurrence rules)
-- Phase 21: Bank feed pipeline (Plaid API integration)
-- Phase 22: Reconciliation service (book vs statement balance)
-- Phase 23: Packaging & distribution (installer, auto-update)
+## FUTURE PHASES (not scheduled)
+- Phase 24: Packaging & distribution (installer, app icon, auto-update)

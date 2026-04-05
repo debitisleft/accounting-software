@@ -5,8 +5,9 @@ mod db;
 mod commands;
 
 pub struct DbState {
-    pub conn: Mutex<rusqlite::Connection>,
-    pub db_path: String,
+    pub conn: Mutex<Option<rusqlite::Connection>>,
+    pub current_path: Mutex<Option<String>>,
+    pub app_data_dir: String,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -26,20 +27,26 @@ pub fn run() {
                 .app_data_dir()
                 .expect("failed to get app data dir");
 
-            let db_path = app_data_dir.join("bookkeeping.db");
-            let db_path_str = db_path.to_string_lossy().to_string();
-
-            let conn = db::init_db(app_data_dir)
-                .expect("failed to initialize database");
+            std::fs::create_dir_all(&app_data_dir).ok();
 
             app.manage(DbState {
-                conn: Mutex::new(conn),
-                db_path: db_path_str,
+                conn: Mutex::new(None),
+                current_path: Mutex::new(None),
+                app_data_dir: app_data_dir.to_string_lossy().to_string(),
             });
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // Phase 18: file management
+            commands::create_new_file,
+            commands::open_file,
+            commands::close_file,
+            commands::get_recent_files,
+            commands::open_recent_file,
+            commands::remove_recent_file,
+            commands::is_file_open,
+            // Core accounting
             commands::get_accounts,
             commands::create_transaction,
             commands::get_account_balance,

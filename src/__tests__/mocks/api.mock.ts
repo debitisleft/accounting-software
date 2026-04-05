@@ -24,6 +24,8 @@ import type {
   ImportResult,
   AutoBackupResult,
   BackupInfo,
+  FileInfo,
+  RecentFile,
   LockedPeriod,
 } from '../../lib/api'
 
@@ -84,14 +86,83 @@ export class MockApi {
     currency_symbol: '$',
     date_format: 'YYYY-MM-DD',
   }
+  recentFiles: RecentFile[] = []
+  fileOpen = false
+  currentPath: string | null = null
   private nextId = 1
   private auditSeq = 0
+
+  private guardFileOpen(): void {
+    if (!this.fileOpen) throw new Error('No file is open')
+  }
 
   private genId(): string {
     return `mock-${this.nextId++}`
   }
 
+  createNewFile(path: string, companyName: string): FileInfo {
+    this.resetData()
+    this.fileOpen = true
+    this.currentPath = path
+    this.settings.company_name = companyName
+    this.seedAccounts(defaultSeedAccounts)
+    this.addToRecent(path, companyName)
+    return { path, company_name: companyName }
+  }
+
+  openFile(path: string): FileInfo {
+    if (path.includes('missing')) throw new Error(`File not found: ${path}`)
+    if (path.includes('invalid')) throw new Error("Invalid book file: missing 'accounts' table")
+    this.fileOpen = true
+    this.currentPath = path
+    this.addToRecent(path, this.settings.company_name)
+    return { path, company_name: this.settings.company_name }
+  }
+
+  closeFile(): void {
+    this.fileOpen = false
+    this.currentPath = null
+  }
+
+  getRecentFiles(): RecentFile[] {
+    return this.recentFiles.slice()
+  }
+
+  openRecentFile(path: string): FileInfo {
+    return this.openFile(path)
+  }
+
+  removeRecentFile(path: string): void {
+    this.recentFiles = this.recentFiles.filter((f) => f.path !== path)
+  }
+
+  isFileOpen(): boolean {
+    return this.fileOpen
+  }
+
+  private addToRecent(path: string, companyName: string): void {
+    this.recentFiles = this.recentFiles.filter((f) => f.path !== path)
+    this.recentFiles.unshift({ path, company_name: companyName, last_opened: new Date().toISOString() })
+    if (this.recentFiles.length > 10) this.recentFiles.length = 10
+  }
+
+  private resetData(): void {
+    this.accounts = []
+    this.transactions = []
+    this.entries = []
+    this.auditLog = []
+    this.lockPeriods = []
+    this.globalLocks = []
+    this.settings = {
+      company_name: 'My Company',
+      fiscal_year_start_month: '1',
+      currency_symbol: '$',
+      date_format: 'YYYY-MM-DD',
+    }
+  }
+
   seedAccounts(seedData: { code: string; name: string; type: string }[]): void {
+    this.fileOpen = true // seedAccounts implies a file is open
     if (this.accounts.length > 0) return
     const now = Date.now()
     for (const s of seedData) {
@@ -109,6 +180,7 @@ export class MockApi {
   }
 
   getAccounts(): Account[] {
+    this.guardFileOpen()
     return this.accounts.filter((a) => a.is_active === 1).sort((a, b) => a.code.localeCompare(b.code))
   }
 

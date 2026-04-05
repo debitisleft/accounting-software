@@ -1,5 +1,18 @@
 import { invoke } from '@tauri-apps/api/core'
 
+// ── File Management Types ────────────────────────────────
+
+export interface FileInfo {
+  path: string
+  company_name: string
+}
+
+export interface RecentFile {
+  path: string
+  company_name: string
+  last_opened: string
+}
+
 // ── Types matching Rust structs ──────────────────────────
 
 export interface Account {
@@ -182,6 +195,29 @@ export interface DashboardSummary {
 // ── API — the ONLY place invoke() is called ──────────────
 
 export const api = {
+  // File management
+  createNewFile: (path: string, companyName: string) =>
+    invoke<FileInfo>('create_new_file', { path, companyName }),
+
+  openFile: (path: string) =>
+    invoke<FileInfo>('open_file', { path }),
+
+  closeFile: () =>
+    invoke<void>('close_file'),
+
+  getRecentFiles: () =>
+    invoke<RecentFile[]>('get_recent_files'),
+
+  openRecentFile: (path: string) =>
+    invoke<FileInfo>('open_recent_file', { path }),
+
+  removeRecentFile: (path: string) =>
+    invoke<void>('remove_recent_file', { path }),
+
+  isFileOpen: () =>
+    invoke<boolean>('is_file_open'),
+
+  // Accounting
   getAccounts: () =>
     invoke<Account[]>('get_accounts'),
 
