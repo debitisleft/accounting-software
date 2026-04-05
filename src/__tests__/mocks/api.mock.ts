@@ -18,6 +18,10 @@ import type {
   ListTransactionsResult,
   ListTransactionsFilters,
   AuditLogEntry,
+  ExportResult,
+  ImportResult,
+  AutoBackupResult,
+  BackupInfo,
 } from '../../lib/api'
 
 interface StoredTransaction {
@@ -69,6 +73,7 @@ export class MockApi {
   entries: StoredEntry[] = []
   auditLog: StoredAuditLog[] = []
   lockPeriods: StoredLockPeriod[] = []
+  backups: { path: string; filename: string; size: number; created_at: string }[] = []
   private nextId = 1
   private auditSeq = 0
 
@@ -464,6 +469,41 @@ export class MockApi {
     return this.auditLog
       .filter((a) => a.transaction_id === transactionId)
       .sort((a, b) => b.changed_at - a.changed_at)
+  }
+
+  exportDatabase(destination: string): ExportResult {
+    // Simulate: just record the export
+    return { path: destination, size: 1024 }
+  }
+
+  importDatabase(source: string): ImportResult {
+    // Simulate validation: reject if source is "corrupt"
+    if (source.includes('corrupt')) {
+      throw new Error('Invalid database file')
+    }
+    // In real implementation this replaces the db; in mock we just return counts
+    return {
+      account_count: this.accounts.length,
+      transaction_count: this.transactions.length,
+    }
+  }
+
+  autoBackup(): AutoBackupResult {
+    const filename = `bookkeeping-${new Date().toISOString().replace(/[:.]/g, '-')}.db`
+    const path = `/backups/${filename}`
+    this.backups.push({ path, filename, size: 1024, created_at: new Date().toISOString() })
+
+    // Keep only 5 most recent
+    this.backups.sort((a, b) => b.filename.localeCompare(a.filename))
+    if (this.backups.length > 5) {
+      this.backups = this.backups.slice(0, 5)
+    }
+
+    return { path, backup_count: this.backups.length }
+  }
+
+  listBackups(): BackupInfo[] {
+    return this.backups.sort((a, b) => b.filename.localeCompare(a.filename))
   }
 
   getAppMetadata(): AppMetadata {

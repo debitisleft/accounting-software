@@ -155,20 +155,20 @@
 - [x] CHECK: Can edit and void transactions, audit trail visible, locked periods enforced, all tests pass, `npm run check` clean
 
 ## PHASE 13 — Backup & Restore
-- [ ] Add `export_database` Rust command (SQLite backup API to user-chosen path)
-- [ ] Add `import_database` Rust command (validate, replace, reopen — returns account/transaction counts)
-- [ ] Add `auto_backup` Rust command (backup to app_data_dir/backups, keep last 5)
-- [ ] Add `list_backups` Rust command (backup files with dates and sizes)
-- [ ] Add all 4 commands to api.ts + MockApi
-- [ ] Settings page: Export button → file dialog, Import button → confirmation → file dialog
-- [ ] Auto-Backups section: list recent backups, restore from list
-- [ ] On app startup: call auto_backup silently
-- [ ] Test: export creates valid SQLite file
-- [ ] Test: import replaces database and returns correct counts
-- [ ] Test: import rejects corrupt files
-- [ ] Test: auto_backup creates file in backups dir
-- [ ] Test: auto_backup keeps only 5 most recent
-- [ ] CHECK: Can export/import database, auto-backup works, all tests pass, `npm run check` clean
+- [x] Add `export_database` Rust command (SQLite backup API to user-chosen path)
+- [x] Add `import_database` Rust command (validate, replace, reopen — returns account/transaction counts)
+- [x] Add `auto_backup` Rust command (backup to app_data_dir/backups, keep last 5)
+- [x] Add `list_backups` Rust command (backup files with dates and sizes)
+- [x] Add all 4 commands to api.ts + MockApi
+- [x] Settings page: Export button → file dialog, Import button → confirmation → file dialog
+- [x] Auto-Backups section: list recent backups, restore from list
+- [x] On app startup: call auto_backup silently
+- [x] Test: export creates valid SQLite file
+- [x] Test: import replaces database and returns correct counts
+- [x] Test: import rejects corrupt files
+- [x] Test: auto_backup creates file in backups dir
+- [x] Test: auto_backup keeps only 5 most recent
+- [x] CHECK: Can export/import database, auto-backup works, all tests pass, `npm run check` clean
 
 ## PHASE 14 — CSV Export
 - [ ] Add `export_csv` Rust command (type enum: TransactionRegister, TrialBalance, IncomeStatement, BalanceSheet, ChartOfAccounts)
@@ -228,8 +228,8 @@
 
 ---
 
-## CURRENT PHASE: 13
-## LAST COMPLETED CHECK: Phase 12 — editing, voiding, audit trail, 49 tests pass (2026-04-05)
+## CURRENT PHASE: 14
+## LAST COMPLETED CHECK: Phase 13 — backup/restore, 54 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (scoped, not scheduled)

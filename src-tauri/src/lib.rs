@@ -63,6 +63,10 @@ pub fn run() {
             commands::update_transaction_lines,
             commands::void_transaction,
             commands::get_audit_log,
+            commands::export_database,
+            commands::import_database,
+            commands::auto_backup,
+            commands::list_backups,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

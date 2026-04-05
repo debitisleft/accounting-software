@@ -1,8 +1,19 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 12 Complete — working on Phase 13
+## STATUS: Phase 13 Complete — working on Phase 14
 
 ## COMPLETED
+
+### Phase 13 — Backup & Restore (2026-04-05)
+- Added 4 Rust commands: export_database (VACUUM INTO), import_database (validate + replace), auto_backup (keep 5), list_backups
+- export uses SQLite VACUUM INTO for safe backup while db is open
+- import validates required tables exist, closes connection, copies file, reopens
+- auto_backup creates timestamped backups in app_data_dir/backups/, purges oldest beyond 5
+- All 4 commands in api.ts + MockApi
+- Created SettingsPage.tsx: About section (version/db path), Export/Import buttons, Auto-Backups list
+- Wired SettingsPage into App.tsx replacing placeholder
+- 5 new tests: export result, import counts, import rejects corrupt, auto creates, auto keeps 5
+- 54 total tests pass, typecheck clean
 
 ### Phase 12 — Transaction Editing, Voiding & Audit Trail (2026-04-05)
 - Added 4 Rust commands: update_transaction, update_transaction_lines, void_transaction, get_audit_log

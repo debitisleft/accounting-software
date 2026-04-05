@@ -7,6 +7,7 @@ import { TrialBalanceReport } from './components/TrialBalance'
 import { IncomeStatementReport } from './components/IncomeStatement'
 import { BalanceSheetReport } from './components/BalanceSheet'
 import { TransactionRegister } from './components/TransactionRegister'
+import { SettingsPage } from './components/SettingsPage'
 
 function App() {
   const [page, setPage] = useState<Page>('dashboard')
@@ -23,11 +24,7 @@ function App() {
       {page === 'trial-balance' && <TrialBalanceReport version={version} />}
       {page === 'income-statement' && <IncomeStatementReport version={version} />}
       {page === 'balance-sheet' && <BalanceSheetReport version={version} />}
-      {page === 'settings' && (
-        <div style={{ padding: '20px' }}>
-          <p>Settings — coming in Phase 15.</p>
-        </div>
-      )}
+      {page === 'settings' && <SettingsPage version={version} />}
     </AppShell>
   )
 }

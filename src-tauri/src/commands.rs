@@ -1324,3 +1324,181 @@ pub async fn get_audit_log(
     }
     Ok(entries)
 }
+
+// ── Phase 13: Backup & Restore ───────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct ExportResult {
+    pub path: String,
+    pub size: u64,
+}
+
+#[tauri::command]
+pub async fn export_database(
+    db: State<'_, DbState>,
+    destination: String,
+) -> Result<ExportResult, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    // Use SQLite backup API for safe copy
+    conn.execute("VACUUM INTO ?1", params![destination])
+        .map_err(|e| format!("Backup failed: {}", e))?;
+
+    let size = std::fs::metadata(&destination)
+        .map_err(|e| e.to_string())?
+        .len();
+
+    Ok(ExportResult { path: destination, size })
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportResult {
+    pub account_count: i64,
+    pub transaction_count: i64,
+}
+
+#[tauri::command]
+pub async fn import_database(
+    db: State<'_, DbState>,
+    source: String,
+) -> Result<ImportResult, String> {
+    // Validate source is a valid SQLite db with expected tables
+    let source_conn = rusqlite::Connection::open(&source)
+        .map_err(|e| format!("Invalid database file: {}", e))?;
+
+    let has_accounts: bool = source_conn.query_row(
+        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='accounts'",
+        [], |row| row.get(0),
+    ).map_err(|e| format!("Invalid database: {}", e))?;
+
+    let has_transactions: bool = source_conn.query_row(
+        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='transactions'",
+        [], |row| row.get(0),
+    ).map_err(|e| format!("Invalid database: {}", e))?;
+
+    if !has_accounts || !has_transactions {
+        return Err("Database is missing required tables (accounts, transactions)".to_string());
+    }
+
+    let account_count: i64 = source_conn.query_row("SELECT COUNT(*) FROM accounts", [], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+    let transaction_count: i64 = source_conn.query_row("SELECT COUNT(*) FROM transactions", [], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    drop(source_conn);
+
+    // Replace the current database
+    let mut conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let db_path = db.db_path.clone();
+
+    // Close current connection by replacing it
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").ok();
+
+    // Copy source over the current db
+    std::fs::copy(&source, &db_path)
+        .map_err(|e| format!("Failed to replace database: {}", e))?;
+
+    // Reopen
+    *conn = rusqlite::Connection::open(&db_path)
+        .map_err(|e| format!("Failed to reopen database: {}", e))?;
+    conn.execute_batch("PRAGMA journal_mode=WAL;").ok();
+    conn.execute_batch("PRAGMA foreign_keys=ON;").ok();
+
+    Ok(ImportResult { account_count, transaction_count })
+}
+
+#[derive(Debug, Serialize)]
+pub struct BackupInfo {
+    pub path: String,
+    pub filename: String,
+    pub size: u64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AutoBackupResult {
+    pub path: String,
+    pub backup_count: usize,
+}
+
+#[tauri::command]
+pub async fn auto_backup(
+    db: State<'_, DbState>,
+) -> Result<AutoBackupResult, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+    let db_path = std::path::Path::new(&db.db_path);
+    let backups_dir = db_path.parent()
+        .ok_or("Cannot determine backup directory")?
+        .join("backups");
+
+    std::fs::create_dir_all(&backups_dir)
+        .map_err(|e| format!("Failed to create backups directory: {}", e))?;
+
+    let timestamp = chrono::Local::now().format("%Y-%m-%d-%H%M%S");
+    let backup_path = backups_dir.join(format!("bookkeeping-{}.db", timestamp));
+    let backup_str = backup_path.to_string_lossy().to_string();
+
+    conn.execute("VACUUM INTO ?1", params![backup_str])
+        .map_err(|e| format!("Auto-backup failed: {}", e))?;
+
+    // Keep only 5 most recent
+    let mut backup_files: Vec<_> = std::fs::read_dir(&backups_dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map_or(false, |ext| ext == "db"))
+        .collect();
+
+    backup_files.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
+
+    if backup_files.len() > 5 {
+        for old_file in &backup_files[5..] {
+            std::fs::remove_file(old_file.path()).ok();
+        }
+    }
+
+    let remaining = backup_files.len().min(5);
+
+    Ok(AutoBackupResult {
+        path: backup_str,
+        backup_count: remaining,
+    })
+}
+
+#[tauri::command]
+pub async fn list_backups(
+    db: State<'_, DbState>,
+) -> Result<Vec<BackupInfo>, String> {
+    let db_path = std::path::Path::new(&db.db_path);
+    let backups_dir = db_path.parent()
+        .ok_or("Cannot determine backup directory")?
+        .join("backups");
+
+    if !backups_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut backups: Vec<BackupInfo> = std::fs::read_dir(&backups_dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map_or(false, |ext| ext == "db"))
+        .filter_map(|e| {
+            let meta = e.metadata().ok()?;
+            let filename = e.file_name().to_string_lossy().to_string();
+            let created = meta.modified().ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string()))
+                .flatten()
+                .unwrap_or_default();
+            Some(BackupInfo {
+                path: e.path().to_string_lossy().to_string(),
+                filename,
+                size: meta.len(),
+                created_at: created,
+            })
+        })
+        .collect();
+
+    backups.sort_by(|a, b| b.filename.cmp(&a.filename));
+    Ok(backups)
+}

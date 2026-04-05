@@ -55,6 +55,28 @@ export interface ListTransactionsFilters {
   memo_search?: string
 }
 
+export interface ExportResult {
+  path: string
+  size: number
+}
+
+export interface ImportResult {
+  account_count: number
+  transaction_count: number
+}
+
+export interface AutoBackupResult {
+  path: string
+  backup_count: number
+}
+
+export interface BackupInfo {
+  path: string
+  filename: string
+  size: number
+  created_at: string
+}
+
 export interface AuditLogEntry {
   id: string
   transaction_id: string | null
@@ -262,4 +284,16 @@ export const api = {
 
   getAuditLog: (transactionId: string) =>
     invoke<AuditLogEntry[]>('get_audit_log', { transactionId }),
+
+  exportDatabase: (destination: string) =>
+    invoke<ExportResult>('export_database', { destination }),
+
+  importDatabase: (source: string) =>
+    invoke<ImportResult>('import_database', { source }),
+
+  autoBackup: () =>
+    invoke<AutoBackupResult>('auto_backup'),
+
+  listBackups: () =>
+    invoke<BackupInfo[]>('list_backups'),
 }
