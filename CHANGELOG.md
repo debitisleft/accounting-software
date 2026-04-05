@@ -1,8 +1,16 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 5 — Complete
+## STATUS: Phase 6 — Complete
 
 ## COMPLETED
+
+### Phase 6 — Reports (2026-04-05)
+- Created `src/components/TrialBalance.tsx` — all accounts with debit/credit columns, totals
+- Created `src/components/IncomeStatement.tsx` — date range picker, revenue/expense breakdown, net income
+- Created `src/components/BalanceSheet.tsx` — assets, liabilities, equity with equation verification
+- All reports show "Out of Balance" warning if equation breaks
+- Updated App.tsx: replaced single Reports tab with 3 separate report tabs
+- All 14 tests still pass, typecheck clean
 
 ### Phase 5 — Core UI Components (2026-04-05)
 - Created `src/db/browser-connection.ts` using sql.js (WASM SQLite) for in-browser database

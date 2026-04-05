@@ -51,11 +51,11 @@
 - [x] CHECK: Manually enter a sample transaction and verify it saves
 
 ## PHASE 6 — Reports
-- [ ] TrialBalance.tsx — all accounts, debit/credit columns
-- [ ] IncomeStatement.tsx — date range picker, revenue/expense breakdown
-- [ ] BalanceSheet.tsx — assets = liabilities + equity verification
-- [ ] Each report shows "Out of Balance" warning if equation breaks
-- [ ] CHECK: Reports render with seeded/test data without crashing
+- [x] TrialBalance.tsx — all accounts, debit/credit columns
+- [x] IncomeStatement.tsx — date range picker, revenue/expense breakdown
+- [x] BalanceSheet.tsx — assets = liabilities + equity verification
+- [x] Each report shows "Out of Balance" warning if equation breaks
+- [x] CHECK: Reports render with seeded/test data without crashing
 
 ## PHASE 7 — Final Integration Check
 - [ ] Enter 5 real-world transactions (sales, expense, owner equity, bill payment, bank deposit)
@@ -66,6 +66,6 @@
 - [ ] CHECK: All Vitest tests still passing
 
 ---
-## CURRENT PHASE: 6
-## LAST COMPLETED CHECK: Phase 5 — UI renders, journal entry saves, dev server runs (2026-04-05)
+## CURRENT PHASE: 7
+## LAST COMPLETED CHECK: Phase 6 — all 3 reports render, 14 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None

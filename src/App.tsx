@@ -2,9 +2,12 @@ import { useState } from 'react'
 import { DatabaseProvider } from './db/DatabaseProvider'
 import { AccountsListPage } from './components/AccountsListPage'
 import { JournalEntryForm } from './components/JournalEntryForm'
+import { TrialBalanceReport } from './components/TrialBalance'
+import { IncomeStatementReport } from './components/IncomeStatement'
+import { BalanceSheetReport } from './components/BalanceSheet'
 import './App.css'
 
-type Tab = 'accounts' | 'journal' | 'reports'
+type Tab = 'accounts' | 'journal' | 'trial-balance' | 'income-statement' | 'balance-sheet'
 
 function App() {
   const [tab, setTab] = useState<Tab>('accounts')
@@ -45,25 +48,43 @@ function App() {
             Journal Entry
           </button>
           <button
-            onClick={() => setTab('reports')}
+            onClick={() => setTab('trial-balance')}
             style={{
               padding: '6px 16px',
-              fontWeight: tab === 'reports' ? 'bold' : 'normal',
-              borderBottom: tab === 'reports' ? '2px solid #333' : 'none',
+              fontWeight: tab === 'trial-balance' ? 'bold' : 'normal',
+              borderBottom: tab === 'trial-balance' ? '2px solid #333' : 'none',
             }}
           >
-            Reports
+            Trial Balance
+          </button>
+          <button
+            onClick={() => setTab('income-statement')}
+            style={{
+              padding: '6px 16px',
+              fontWeight: tab === 'income-statement' ? 'bold' : 'normal',
+              borderBottom: tab === 'income-statement' ? '2px solid #333' : 'none',
+            }}
+          >
+            Income Statement
+          </button>
+          <button
+            onClick={() => setTab('balance-sheet')}
+            style={{
+              padding: '6px 16px',
+              fontWeight: tab === 'balance-sheet' ? 'bold' : 'normal',
+              borderBottom: tab === 'balance-sheet' ? '2px solid #333' : 'none',
+            }}
+          >
+            Balance Sheet
           </button>
         </nav>
 
         <main>
           {tab === 'accounts' && <AccountsListPage />}
           {tab === 'journal' && <JournalEntryForm />}
-          {tab === 'reports' && (
-            <div style={{ padding: '20px' }}>
-              <p>Reports will be available in Phase 6.</p>
-            </div>
-          )}
+          {tab === 'trial-balance' && <TrialBalanceReport />}
+          {tab === 'income-statement' && <IncomeStatementReport />}
+          {tab === 'balance-sheet' && <BalanceSheetReport />}
         </main>
       </div>
     </DatabaseProvider>
