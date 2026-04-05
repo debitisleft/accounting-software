@@ -1,8 +1,19 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 16 Complete — working on Phase 17
+## STATUS: ALL 17 PHASES COMPLETE
 
 ## COMPLETED
+
+### Phase 17 — Report Enhancements (2026-04-05)
+- Added `get_account_ledger` Rust command: transactions for one account, running balance, pagination, date filter
+- Running balance respects normal balance side (debit normal vs credit normal)
+- Created AccountLedger.tsx: date, ref, description, debit, credit, running balance columns with date filter
+- Added print-friendly CSS (@media print): hides nav/buttons, adds table borders, clean layout
+- TrialBalance: account names are now clickable links that drill down to account ledger
+- App.tsx: added ledger routing via state (ledgerAccountId), drill-down from Trial Balance
+- All commands in api.ts + MockApi with full type coverage
+- 5 new tests: running balance correct, respects normal side, pagination, date filter, metadata
+- 75 total tests pass, typecheck clean
 
 ### Phase 16 — Period Management UI (2026-04-05)
 - Added 3 Rust commands: lock_period_global, unlock_period_global, list_locked_periods_global

@@ -7,6 +7,8 @@
 import type {
   Account,
   JournalEntryInput,
+  AccountLedgerResult,
+  LedgerEntry,
   TrialBalanceResult,
   IncomeStatementResult,
   BalanceSheetResult,
@@ -596,6 +598,57 @@ export class MockApi {
       }
       default:
         throw new Error(`Unknown export type: ${exportType}`)
+    }
+  }
+
+  getAccountLedger(accountId: string, options?: {
+    startDate?: string; endDate?: string; offset?: number; limit?: number
+  }): AccountLedgerResult {
+    const acct = this.accounts.find((a) => a.id === accountId)
+    if (!acct) throw new Error(`Account not found: ${accountId}`)
+
+    // Get all journal entries for this account, joined with transactions
+    let pairs = this.entries
+      .filter((e) => e.account_id === accountId)
+      .map((e) => {
+        const tx = this.transactions.find((t) => t.id === e.transaction_id)!
+        return { entry: e, tx }
+      })
+      .filter((p) => {
+        if (options?.startDate && p.tx.date < options.startDate) return false
+        if (options?.endDate && p.tx.date > options.endDate) return false
+        return true
+      })
+      .sort((a, b) => a.tx.date.localeCompare(b.tx.date) || a.tx.created_at - b.tx.created_at)
+
+    const total = pairs.length
+    const off = options?.offset ?? 0
+    const lim = options?.limit ?? 100
+    pairs = pairs.slice(off, off + lim)
+
+    const isDebit = isDebitNormal(acct.type)
+    let running = 0
+    const entries: LedgerEntry[] = pairs.map(({ entry, tx }) => {
+      running += isDebit ? entry.debit - entry.credit : entry.credit - entry.debit
+      return {
+        transaction_id: tx.id,
+        date: tx.date,
+        description: tx.description,
+        reference: tx.reference,
+        debit: entry.debit,
+        credit: entry.credit,
+        running_balance: running,
+        memo: entry.memo,
+      }
+    })
+
+    return {
+      account_id: accountId,
+      account_code: acct.code,
+      account_name: acct.name,
+      account_type: acct.type,
+      entries,
+      total,
     }
   }
 

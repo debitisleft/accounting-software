@@ -1875,3 +1875,128 @@ pub async fn list_locked_periods_global(
     }
     Ok(periods)
 }
+
+// ── Phase 17: Report Enhancements ────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct LedgerEntry {
+    pub transaction_id: String,
+    pub date: String,
+    pub description: String,
+    pub reference: Option<String>,
+    pub debit: i64,
+    pub credit: i64,
+    pub running_balance: i64,
+    pub memo: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AccountLedgerResult {
+    pub account_id: String,
+    pub account_code: String,
+    pub account_name: String,
+    pub account_type: String,
+    pub entries: Vec<LedgerEntry>,
+    pub total: i64,
+}
+
+#[tauri::command]
+pub async fn get_account_ledger(
+    db: State<'_, DbState>,
+    account_id: String,
+    start_date: Option<String>,
+    end_date: Option<String>,
+    offset: Option<i64>,
+    limit: Option<i64>,
+) -> Result<AccountLedgerResult, String> {
+    let conn = db.conn.lock().map_err(|e| e.to_string())?;
+
+    let acct = conn.query_row(
+        "SELECT id, code, name, type FROM accounts WHERE id = ?1",
+        params![account_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?)),
+    ).map_err(|_| format!("Account not found: {}", account_id))?;
+
+    let (_, acct_code, acct_name, acct_type) = acct;
+
+    let mut where_clauses = vec!["je.account_id = ?1".to_string()];
+    let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(account_id.clone())];
+    let mut idx = 2;
+
+    if let Some(ref sd) = start_date {
+        where_clauses.push(format!("t.date >= ?{}", idx)); idx += 1;
+        param_values.push(Box::new(sd.clone()));
+    }
+    if let Some(ref ed) = end_date {
+        where_clauses.push(format!("t.date <= ?{}", idx));
+        let _ = idx;
+        param_values.push(Box::new(ed.clone()));
+    }
+
+    let where_sql = format!(" WHERE {}", where_clauses.join(" AND "));
+
+    // Count total
+    let count_query = format!(
+        "SELECT COUNT(*) FROM journal_entries je JOIN transactions t ON je.transaction_id = t.id{}",
+        where_sql
+    );
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|b| b.as_ref()).collect();
+    let total: i64 = conn.query_row(&count_query, params_refs.as_slice(), |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    // Fetch entries
+    let lim = limit.unwrap_or(100);
+    let off = offset.unwrap_or(0);
+    let data_query = format!(
+        "SELECT t.id, t.date, t.description, t.reference, je.debit, je.credit, je.memo
+         FROM journal_entries je
+         JOIN transactions t ON je.transaction_id = t.id
+         {} ORDER BY t.date ASC, t.created_at ASC LIMIT {} OFFSET {}",
+        where_sql, lim, off
+    );
+
+    let mut stmt = conn.prepare(&data_query).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map(params_refs.as_slice(), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, i64>(4)?,
+            row.get::<_, i64>(5)?,
+            row.get::<_, Option<String>>(6)?,
+        ))
+    }).map_err(|e| e.to_string())?;
+
+    let is_debit = is_debit_normal(&acct_type);
+    let mut running: i64 = 0;
+    let mut entries = Vec::new();
+
+    for row in rows {
+        let (tx_id, date, desc, reference, debit, credit, memo) = row.map_err(|e| e.to_string())?;
+        if is_debit {
+            running += debit - credit;
+        } else {
+            running += credit - debit;
+        }
+        entries.push(LedgerEntry {
+            transaction_id: tx_id,
+            date,
+            description: desc,
+            reference,
+            debit,
+            credit,
+            running_balance: running,
+            memo,
+        });
+    }
+
+    Ok(AccountLedgerResult {
+        account_id,
+        account_code: acct_code,
+        account_name: acct_name,
+        account_type: acct_type,
+        entries,
+        total,
+    })
+}

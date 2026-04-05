@@ -77,6 +77,26 @@ export interface BackupInfo {
   created_at: string
 }
 
+export interface LedgerEntry {
+  transaction_id: string
+  date: string
+  description: string
+  reference: string | null
+  debit: number
+  credit: number
+  running_balance: number
+  memo: string | null
+}
+
+export interface AccountLedgerResult {
+  account_id: string
+  account_code: string
+  account_name: string
+  account_type: string
+  entries: LedgerEntry[]
+  total: number
+}
+
 export interface LockedPeriod {
   id: string
   end_date: string
@@ -336,4 +356,15 @@ export const api = {
 
   listLockedPeriodsGlobal: () =>
     invoke<LockedPeriod[]>('list_locked_periods_global'),
+
+  getAccountLedger: (accountId: string, options?: {
+    startDate?: string; endDate?: string; offset?: number; limit?: number
+  }) =>
+    invoke<AccountLedgerResult>('get_account_ledger', {
+      accountId,
+      startDate: options?.startDate ?? null,
+      endDate: options?.endDate ?? null,
+      offset: options?.offset ?? null,
+      limit: options?.limit ?? null,
+    }),
 }

@@ -109,3 +109,32 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+/* Print-friendly styles */
+@media print {
+  nav, .no-print, button, select, input {
+    display: none !important;
+  }
+  body {
+    background: white;
+    color: black;
+    font-size: 11pt;
+  }
+  main {
+    margin: 0;
+    padding: 0;
+  }
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    box-shadow: none !important;
+  }
+  th, td {
+    border: 1px solid #ccc !important;
+    padding: 4px 6px !important;
+  }
+  h2 {
+    font-size: 16pt;
+    margin-bottom: 8pt;
+  }
+}

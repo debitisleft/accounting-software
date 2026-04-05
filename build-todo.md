@@ -213,23 +213,23 @@
 - [x] CHECK: Lock/unlock works via UI, visual indicators correct, all tests pass, `npm run check` clean
 
 ## PHASE 17 — Report Enhancements
-- [ ] Add `get_account_ledger` Rust command (transactions for one account, running balance, pagination)
-- [ ] Add command to api.ts + MockApi
-- [ ] Apply currency symbol and date format from settings to all reports
-- [ ] Add print-friendly CSS to all reports (@media print)
-- [ ] TrialBalance: clickable account names → drill down to account ledger
-- [ ] Create `AccountLedger.tsx` — Date, Ref, Memo, Debit, Credit, Running Balance
-- [ ] Account ledger: date range picker, links to full transaction in register
-- [ ] Income Statement: percentage column (each line as % of total revenue)
-- [ ] Test: get_account_ledger returns correct running balance
-- [ ] Test: running balance respects normal balance side
-- [ ] Test: pagination works on account ledger
-- [ ] CHECK: Drill-down works, running balance correct, print styles work, all tests pass, `npm run check` clean
+- [x] Add `get_account_ledger` Rust command (transactions for one account, running balance, pagination)
+- [x] Add command to api.ts + MockApi
+- [x] Apply currency symbol and date format from settings to all reports
+- [x] Add print-friendly CSS to all reports (@media print)
+- [x] TrialBalance: clickable account names → drill down to account ledger
+- [x] Create `AccountLedger.tsx` — Date, Ref, Memo, Debit, Credit, Running Balance
+- [x] Account ledger: date range picker, links to full transaction in register
+- [x] Income Statement: percentage column (each line as % of total revenue)
+- [x] Test: get_account_ledger returns correct running balance
+- [x] Test: running balance respects normal balance side
+- [x] Test: pagination works on account ledger
+- [x] CHECK: Drill-down works, running balance correct, print styles work, all tests pass, `npm run check` clean
 
 ---
 
-## CURRENT PHASE: 17
-## LAST COMPLETED CHECK: Phase 16 — period management, 70 tests pass (2026-04-05)
+## CURRENT PHASE: COMPLETE (17 phases)
+## LAST COMPLETED CHECK: Phase 17 — report enhancements, 75 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (scoped, not scheduled)

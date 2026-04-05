@@ -8,20 +8,30 @@ import { IncomeStatementReport } from './components/IncomeStatement'
 import { BalanceSheetReport } from './components/BalanceSheet'
 import { TransactionRegister } from './components/TransactionRegister'
 import { SettingsPage } from './components/SettingsPage'
+import { AccountLedger } from './components/AccountLedger'
 
 function App() {
   const [page, setPage] = useState<Page>('dashboard')
   const [version, setVersion] = useState(0)
+  const [ledgerAccountId, setLedgerAccountId] = useState<string | null>(null)
 
   const refresh = () => setVersion((v) => v + 1)
 
+  const openLedger = (accountId: string) => {
+    setLedgerAccountId(accountId)
+    setPage('accounts') // Keep sidebar highlighting on accounts
+  }
+
   return (
-    <AppShell activePage={page} onNavigate={setPage}>
+    <AppShell activePage={page} onNavigate={(p) => { setPage(p); setLedgerAccountId(null) }}>
       {page === 'dashboard' && <Dashboard version={version} />}
-      {page === 'accounts' && <AccountsListPage version={version} />}
+      {page === 'accounts' && !ledgerAccountId && <AccountsListPage version={version} />}
+      {page === 'accounts' && ledgerAccountId && (
+        <AccountLedger accountId={ledgerAccountId} version={version} onBack={() => setLedgerAccountId(null)} />
+      )}
       {page === 'journal' && <JournalEntryForm version={version} onSaved={refresh} />}
       {page === 'register' && <TransactionRegister version={version} />}
-      {page === 'trial-balance' && <TrialBalanceReport version={version} />}
+      {page === 'trial-balance' && <TrialBalanceReport version={version} onDrillDown={openLedger} />}
       {page === 'income-statement' && <IncomeStatementReport version={version} />}
       {page === 'balance-sheet' && <BalanceSheetReport version={version} />}
       {page === 'settings' && <SettingsPage version={version} />}

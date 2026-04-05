@@ -10,7 +10,7 @@ function formatCents(cents: number): string {
   return `$${dollars.toLocaleString()}.${String(remainder).padStart(2, '0')}`
 }
 
-export function TrialBalanceReport({ version }: { version: number }) {
+export function TrialBalanceReport({ version, onDrillDown }: { version: number; onDrillDown?: (accountId: string) => void }) {
   const [data, setData] = useState<TrialBalanceResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -50,7 +50,11 @@ export function TrialBalanceReport({ version }: { version: number }) {
             {data.rows.map((row) => (
               <tr key={row.account_id} style={{ borderBottom: '1px solid #ddd' }}>
                 <td style={{ padding: '6px 8px', fontFamily: 'monospace' }}>{row.code}</td>
-                <td style={{ padding: '6px 8px' }}>{row.name}</td>
+                <td style={{ padding: '6px 8px' }}>
+                  {onDrillDown ? (
+                    <a href="#" onClick={(e) => { e.preventDefault(); onDrillDown(row.account_id) }} style={{ color: '#1976d2', textDecoration: 'none' }}>{row.name}</a>
+                  ) : row.name}
+                </td>
                 <td style={{ padding: '6px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
                   {formatCents(row.debit)}
                 </td>
