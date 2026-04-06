@@ -93,40 +93,40 @@ See previous build-todo files for full history.
 ## PHASE 22 — Fiscal Year Close
 **Goal:** Close a fiscal year by zeroing revenue/expense into retained earnings.
 
-- [ ] Add `close_fiscal_year` Rust command:
+- [x] Add `close_fiscal_year` Rust command:
   - Takes: fiscal year end date
   - Validates: all periods through that date should be locked (warn if not, but allow)
   - Creates a CLOSING journal entry:
     - Debits each revenue account for its balance (zeroing it)
     - Credits each expense account for its balance (zeroing it)
-    - Net difference goes to Retained Earnings (3900)
+    - Net difference goes to Retained Earnings (3200)
   - Marks transaction with journal_type = 'CLOSING'
   - Locks the period through the fiscal year end date
   - Returns: closing entry details + net income transferred
-- [ ] Add `list_fiscal_year_closes` Rust command — returns history of closed years
-- [ ] Add both commands to api.ts + MockApi
-- [ ] Create `FiscalYearClose.tsx` (under Settings):
+- [x] Add `list_fiscal_year_closes` Rust command — returns history of closed years
+- [x] Add both commands to api.ts + MockApi
+- [x] Create `FiscalYearClose.tsx` (under Accounts in sidebar):
   - Shows current fiscal year dates (from settings)
   - "Close Year" button → confirmation with preview of closing entry amounts
   - History of previously closed years
   - Warning if periods aren't locked through year-end
-- [ ] Update balance sheet:
+- [x] Update balance sheet:
   - Equity section shows: Owner's Equity + Retained Earnings (from closing entries) + Current Year Net Income (unclosed)
   - These are three separate line items, not lumped together
-- [ ] Update income statement: default date range = current fiscal year (not all-time)
-- [ ] Reports exclude CLOSING entries by default (toggle to include)
+- [x] Update income statement: default date range = current fiscal year (not all-time)
+- [x] Reports exclude CLOSING entries by default (toggle to include)
 
 ### Tests
-- [ ] Test: close_fiscal_year creates correct closing entry
-- [ ] Test: closing entry zeroes all revenue accounts for the period
-- [ ] Test: closing entry zeroes all expense accounts for the period
-- [ ] Test: net income transfers to retained earnings
-- [ ] Test: closing entry has journal_type = 'CLOSING'
-- [ ] Test: period is locked after closing
-- [ ] Test: cannot close the same fiscal year twice
-- [ ] Test: balance sheet shows retained earnings separate from current net income
-- [ ] Test: income statement excludes closing entries by default
-- [ ] CHECK: Can close a fiscal year, retained earnings updated, balance sheet correct, all tests pass, `npm run check` clean
+- [x] Test: close_fiscal_year creates correct closing entry
+- [x] Test: closing entry zeroes all revenue accounts for the period
+- [x] Test: closing entry zeroes all expense accounts for the period
+- [x] Test: net income transfers to retained earnings
+- [x] Test: closing entry has journal_type = 'CLOSING'
+- [x] Test: period is locked after closing
+- [x] Test: cannot close the same fiscal year twice
+- [x] Test: balance sheet shows retained earnings separate from current net income
+- [x] Test: income statement excludes closing entries by default
+- [x] CHECK: Can close a fiscal year, retained earnings updated, balance sheet correct, all tests pass, `npm run check` clean
 
 ---
 
@@ -276,8 +276,8 @@ See previous build-todo files for full history.
 
 ---
 
-## CURRENT PHASE: 22
-## LAST COMPLETED CHECK: Phase 21 — retained earnings & opening balances, 153 tests pass (2026-04-05)
+## CURRENT PHASE: 23
+## LAST COMPLETED CHECK: Phase 22 — fiscal year close, 163 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)

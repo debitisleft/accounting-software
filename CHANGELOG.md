@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 21 Complete — working on Phase 22
+## STATUS: Phase 22 Complete — working on Phase 23
 
 ## CURRENT STATE (2026-04-05)
-- 21 phases complete, 153 tests passing
+- 22 phases complete, 163 tests passing
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,16 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 22 — Fiscal Year Close (2026-04-05)
+- Added `close_fiscal_year` command — zeroes revenue/expense, transfers net income to Retained Earnings
+- Added `list_fiscal_year_closes` command — history of closed years
+- Closing entry uses journal_type = CLOSING
+- Period automatically locked through fiscal year end date
+- Duplicate close prevention (cannot close same year twice)
+- FiscalYearClose.tsx UI with confirmation dialog and closing history
+- Income statement excludes closing entries by default (toggle)
+- 163 tests passing (10 new fiscal year close tests)
 
 ### Phase 21 — Retained Earnings & Opening Balances (2026-04-05)
 - Added "Opening Balance Equity" (code 3500) to seed accounts

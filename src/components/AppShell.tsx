@@ -9,6 +9,7 @@ export type Page =
   | 'income-statement'
   | 'balance-sheet'
   | 'opening-balances'
+  | 'fiscal-year-close'
   | 'settings'
 
 interface SidebarItem {
@@ -38,6 +39,7 @@ const sections: SidebarSection[] = [
     items: [
       { id: 'accounts', label: 'Chart of Accounts' },
       { id: 'opening-balances', label: 'Opening Balances' },
+      { id: 'fiscal-year-close', label: 'Fiscal Year Close' },
     ],
   },
   {
@@ -63,6 +65,7 @@ const shortLabels: Record<Page, string> = {
   'income-statement': 'IS',
   'balance-sheet': 'BS',
   'opening-balances': 'OB',
+  'fiscal-year-close': 'FY',
   settings: 'S',
 }
 

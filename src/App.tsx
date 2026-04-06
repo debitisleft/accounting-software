@@ -11,6 +11,7 @@ import { TransactionRegister } from './components/TransactionRegister'
 import { SettingsPage } from './components/SettingsPage'
 import { AccountLedger } from './components/AccountLedger'
 import { OpeningBalancesWizard } from './components/OpeningBalancesWizard'
+import { FiscalYearClose } from './components/FiscalYearClose'
 import { api } from './lib/api'
 
 function App() {
@@ -50,6 +51,7 @@ function App() {
       {page === 'income-statement' && <IncomeStatementReport version={version} />}
       {page === 'balance-sheet' && <BalanceSheetReport version={version} />}
       {page === 'opening-balances' && <OpeningBalancesWizard version={version} onSaved={refresh} />}
+      {page === 'fiscal-year-close' && <FiscalYearClose version={version} />}
       {page === 'settings' && <SettingsPage version={version} />}
     </AppShell>
   )

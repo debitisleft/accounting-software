@@ -1245,6 +1245,191 @@ pub async fn enter_opening_balances(
     }
 }
 
+// ── Phase 22: Fiscal Year Close ──────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct FiscalYearCloseResult {
+    pub transaction_id: String,
+    pub net_income: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FiscalYearCloseInfo {
+    pub transaction_id: String,
+    pub date: String,
+    pub net_income: i64,
+}
+
+#[tauri::command]
+pub async fn close_fiscal_year(
+    db: State<'_, DbState>,
+    fiscal_year_end_date: String,
+) -> Result<FiscalYearCloseResult, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Check not already closed
+    let already_closed: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM transactions WHERE journal_type = 'CLOSING' AND date = ?1",
+        params![fiscal_year_end_date],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+    if already_closed {
+        return Err("Fiscal year already closed for this date".to_string());
+    }
+
+    // Find retained earnings account
+    let re_id: String = conn.query_row(
+        "SELECT id FROM accounts WHERE code = '3200'",
+        [],
+        |row| row.get(0),
+    ).map_err(|_| "Retained Earnings account not found".to_string())?;
+
+    // Get fiscal year start
+    let start_month: String = conn.query_row(
+        "SELECT value FROM settings WHERE key = 'fiscal_year_start_month'",
+        [],
+        |row| row.get(0),
+    ).unwrap_or_else(|_| "1".to_string());
+    let start_month_num: u32 = start_month.parse().unwrap_or(1);
+    let end_year: i32 = fiscal_year_end_date[..4].parse().unwrap_or(2026);
+    let start_year = if start_month_num == 1 { end_year } else { end_year - 1 };
+    let start_date = format!("{}-{:02}-01", start_year, start_month_num);
+
+    // Get revenue/expense balances
+    let mut stmt = conn.prepare(
+        "SELECT a.id, a.type,
+                COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0)
+         FROM accounts a
+         LEFT JOIN journal_entries je ON je.account_id = a.id
+         LEFT JOIN transactions t ON je.transaction_id = t.id AND t.date >= ?1 AND t.date <= ?2
+         WHERE a.is_active = 1 AND a.type IN ('REVENUE', 'EXPENSE')
+         GROUP BY a.id"
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(params![start_date, fiscal_year_end_date], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+            row.get::<_, i64>(2)?, row.get::<_, i64>(3)?))
+    }).map_err(|e| e.to_string())?;
+
+    let mut entries: Vec<(String, i64, i64)> = Vec::new();
+    let mut total_revenue: i64 = 0;
+    let mut total_expenses: i64 = 0;
+
+    for row in rows {
+        let (acct_id, acct_type, total_debit, total_credit) = row.map_err(|e| e.to_string())?;
+        let balance = if is_debit_normal(&acct_type) {
+            total_debit - total_credit
+        } else {
+            total_credit - total_debit
+        };
+        if balance == 0 { continue; }
+
+        match acct_type.as_str() {
+            "REVENUE" => {
+                total_revenue += balance;
+                entries.push((acct_id, balance, 0)); // debit revenue to zero it
+            }
+            "EXPENSE" => {
+                total_expenses += balance;
+                entries.push((acct_id, 0, balance)); // credit expense to zero it
+            }
+            _ => {}
+        }
+    }
+
+    if entries.is_empty() {
+        return Err("No revenue or expense balances to close".to_string());
+    }
+
+    let net_income = total_revenue - total_expenses;
+    if net_income > 0 {
+        entries.push((re_id, 0, net_income)); // credit retained earnings
+    } else if net_income < 0 {
+        entries.push((re_id, -net_income, 0)); // debit retained earnings
+    }
+
+    let tx_id = Uuid::new_v4().to_string();
+    let now = Utc::now().timestamp();
+
+    conn.execute("BEGIN", []).map_err(|e| e.to_string())?;
+    let result = (|| -> Result<(), String> {
+        conn.execute(
+            "INSERT INTO transactions (id, date, description, reference, journal_type, is_locked, created_at)
+             VALUES (?1, ?2, ?3, 'CJ-CLOSE', 'CLOSING', 0, ?4)",
+            params![tx_id, fiscal_year_end_date, format!("Closing Entry — FY ending {}", fiscal_year_end_date), now],
+        ).map_err(|e| e.to_string())?;
+
+        for (account_id, debit, credit) in &entries {
+            let eid = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO journal_entries (id, transaction_id, account_id, debit, credit) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![eid, tx_id, account_id, debit, credit],
+            ).map_err(|e| e.to_string())?;
+        }
+
+        // Lock the period
+        let already_locked: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM reconciliation_periods WHERE account_id = 'GLOBAL' AND period_end >= ?1 AND is_locked = 1",
+            params![fiscal_year_end_date],
+            |row| row.get(0),
+        ).map_err(|e| e.to_string())?;
+        if !already_locked {
+            let lock_id = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO reconciliation_periods (id, account_id, period_start, period_end, is_locked, locked_at)
+                 VALUES (?1, 'GLOBAL', '0000-01-01', ?2, 1, ?3)",
+                params![lock_id, fiscal_year_end_date, now],
+            ).map_err(|e| e.to_string())?;
+        }
+
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => {
+            conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
+            Ok(FiscalYearCloseResult { transaction_id: tx_id, net_income })
+        }
+        Err(e) => { let _ = conn.execute("ROLLBACK", []); Err(e) }
+    }
+}
+
+#[tauri::command]
+pub async fn list_fiscal_year_closes(
+    db: State<'_, DbState>,
+) -> Result<Vec<FiscalYearCloseInfo>, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let re_id: String = conn.query_row(
+        "SELECT id FROM accounts WHERE code = '3200'",
+        [],
+        |row| row.get(0),
+    ).unwrap_or_default();
+
+    let mut stmt = conn.prepare(
+        "SELECT t.id, t.date FROM transactions t WHERE t.journal_type = 'CLOSING' ORDER BY t.date DESC"
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    }).map_err(|e| e.to_string())?;
+
+    let mut results = Vec::new();
+    for row in rows {
+        let (tx_id, date) = row.map_err(|e| e.to_string())?;
+        let net_income: i64 = conn.query_row(
+            "SELECT COALESCE(credit, 0) - COALESCE(debit, 0) FROM journal_entries WHERE transaction_id = ?1 AND account_id = ?2",
+            params![tx_id, re_id],
+            |row| row.get(0),
+        ).unwrap_or(0);
+        results.push(FiscalYearCloseInfo { transaction_id: tx_id, date, net_income });
+    }
+
+    Ok(results)
+}
+
 // ── Phase 11: Transaction Register ───────────────────────
 
 #[derive(Debug, Serialize)]

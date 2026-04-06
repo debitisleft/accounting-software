@@ -944,6 +944,94 @@ export class MockApi {
     return txId
   }
 
+  closeFiscalYear(fiscalYearEndDate: string): { transaction_id: string; net_income: number } {
+    // Check not already closed
+    const existing = this.transactions.find(
+      (t) => t.journal_type === 'CLOSING' && t.date === fiscalYearEndDate
+    )
+    if (existing) throw new Error('Fiscal year already closed for this date')
+
+    // Find retained earnings account
+    const reAcct = this.accounts.find((a) => a.code === '3200')
+    if (!reAcct) throw new Error('Retained Earnings account not found')
+
+    // Determine fiscal year start from settings
+    const startMonth = parseInt(this.settings.fiscal_year_start_month ?? '1', 10)
+    const endYear = parseInt(fiscalYearEndDate.split('-')[0], 10)
+    const startYear = startMonth === 1 ? endYear : endYear - 1
+    const startDate = `${startYear}-${String(startMonth).padStart(2, '0')}-01`
+
+    // Get income statement for the fiscal year
+    const is = this.getIncomeStatement(startDate, fiscalYearEndDate)
+
+    const entries: { account_id: string; debit: number; credit: number }[] = []
+
+    // Zero out revenue accounts (debit them)
+    for (const rev of is.revenue) {
+      entries.push({ account_id: rev.account_id, debit: rev.balance, credit: 0 })
+    }
+
+    // Zero out expense accounts (credit them)
+    for (const exp of is.expenses) {
+      entries.push({ account_id: exp.account_id, debit: 0, credit: exp.balance })
+    }
+
+    // Net income to Retained Earnings
+    const netIncome = is.net_income
+    if (netIncome > 0) {
+      entries.push({ account_id: reAcct.id, debit: 0, credit: netIncome })
+    } else if (netIncome < 0) {
+      entries.push({ account_id: reAcct.id, debit: -netIncome, credit: 0 })
+    }
+
+    if (entries.length === 0) throw new Error('No revenue or expense balances to close')
+
+    // Create CLOSING transaction directly (bypass system type restriction)
+    const txId = this.genId()
+    this.transactions.push({
+      id: txId,
+      date: fiscalYearEndDate,
+      description: `Closing Entry — FY ending ${fiscalYearEndDate}`,
+      reference: 'CJ-CLOSE',
+      journal_type: 'CLOSING',
+      is_locked: 0,
+      is_void: 0,
+      void_of: null,
+      created_at: Date.now(),
+    })
+
+    for (const entry of entries) {
+      this.entries.push({
+        id: this.genId(),
+        transaction_id: txId,
+        account_id: entry.account_id,
+        debit: entry.debit,
+        credit: entry.credit,
+        memo: null,
+      })
+    }
+
+    // Lock the period through the fiscal year end date
+    if (!this.globalLocks.some((gl) => gl.end_date >= fiscalYearEndDate)) {
+      this.globalLocks.push({ id: this.genId(), end_date: fiscalYearEndDate, locked_at: Date.now() })
+    }
+
+    return { transaction_id: txId, net_income: netIncome }
+  }
+
+  listFiscalYearCloses(): { transaction_id: string; date: string; net_income: number }[] {
+    return this.transactions
+      .filter((t) => t.journal_type === 'CLOSING')
+      .map((t) => {
+        const entries = this.entries.filter((e) => e.transaction_id === t.id)
+        const reAcct = this.accounts.find((a) => a.code === '3200')
+        const reEntry = entries.find((e) => e.account_id === reAcct?.id)
+        const netIncome = reEntry ? (reEntry.credit - reEntry.debit) : 0
+        return { transaction_id: t.id, date: t.date, net_income: netIncome }
+      })
+      .sort((a, b) => b.date.localeCompare(a.date))
+  }
+
   getDashboardSummary(): DashboardSummary {
     const bs = this.getBalanceSheet('9999-12-31')
     const is = this.getIncomeStatement('0000-01-01', '9999-12-31')

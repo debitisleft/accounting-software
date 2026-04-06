@@ -226,6 +226,12 @@ export const api = {
   enterOpeningBalances: (balances: { account_id: string; balance: number }[], effectiveDate: string) =>
     invoke<string>('enter_opening_balances', { balances, effectiveDate }),
 
+  closeFiscalYear: (fiscalYearEndDate: string) =>
+    invoke<{ transaction_id: string; net_income: number }>('close_fiscal_year', { fiscalYearEndDate }),
+
+  listFiscalYearCloses: () =>
+    invoke<{ transaction_id: string; date: string; net_income: number }[]>('list_fiscal_year_closes'),
+
   createTransaction: (data: {
     date: string
     description: string
