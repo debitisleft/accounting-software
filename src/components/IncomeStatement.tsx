@@ -66,7 +66,7 @@ export function IncomeStatementReport({ version }: { version: number }) {
           <tbody>
             {report.revenue.map((acct) => (
               <tr key={acct.account_id}>
-                <td style={{ padding: '4px 8px' }}>{acct.code} — {acct.name}</td>
+                <td style={{ padding: '4px 8px', paddingLeft: `${8 + (acct.depth ?? 0) * 20}px` }}>{acct.code} — {acct.name}</td>
                 <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
                   {formatCents(acct.balance)}
                 </td>
@@ -90,7 +90,7 @@ export function IncomeStatementReport({ version }: { version: number }) {
           <tbody>
             {report.expenses.map((acct) => (
               <tr key={acct.account_id}>
-                <td style={{ padding: '4px 8px' }}>{acct.code} — {acct.name}</td>
+                <td style={{ padding: '4px 8px', paddingLeft: `${8 + (acct.depth ?? 0) * 20}px` }}>{acct.code} — {acct.name}</td>
                 <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'monospace' }}>
                   {formatCents(acct.balance)}
                 </td>

@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 24 Complete — working on Phase 25
+## STATUS: Phase 25 Complete — working on Phase 26
 
 ## CURRENT STATE (2026-04-05)
-- 24 phases complete, 170 tests passing
+- 25 phases complete, 174 tests passing
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,14 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 25 — Account Hierarchy in Reports (2026-04-05)
+- `get_accounts` now returns `depth` computed from parent chain
+- `AccountBalanceRow` and `AccountBalanceItem` include `depth` and `parent_id`
+- AccountsListPage: child accounts indented under parents, parent accounts bolded
+- TrialBalance, BalanceSheet, IncomeStatement: accounts indented by depth
+- Account creation UI: parent account dropdown filtered by matching type
+- 174 tests passing (4 new hierarchy tests)
 
 ### Phase 24 — Cash Flow Statement (2026-04-05)
 - Added `cash_flow_category` and `is_cash_account` columns to accounts table (migration)

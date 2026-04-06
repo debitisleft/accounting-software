@@ -26,6 +26,7 @@ export interface Account {
   is_system: number
   is_cash_account: number
   cash_flow_category: string | null
+  depth: number
   created_at: number
 }
 
@@ -136,6 +137,8 @@ export interface AccountBalanceRow {
   type: string
   debit: number
   credit: number
+  depth: number
+  parent_id: string | null
 }
 
 export interface TrialBalanceResult {
@@ -150,6 +153,8 @@ export interface AccountBalanceItem {
   code: string
   name: string
   balance: number
+  depth: number
+  parent_id: string | null
 }
 
 export interface IncomeStatementResult {

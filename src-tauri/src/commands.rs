@@ -193,6 +193,7 @@ pub struct Account {
     pub is_system: i64,
     pub is_cash_account: i64,
     pub cash_flow_category: Option<String>,
+    pub depth: i64,
     pub created_at: i64,
 }
 
@@ -237,6 +238,8 @@ pub struct AccountBalanceRow {
     pub acct_type: String,
     pub debit: i64,
     pub credit: i64,
+    pub depth: i64,
+    pub parent_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -253,6 +256,8 @@ pub struct AccountBalanceItem {
     pub code: String,
     pub name: String,
     pub balance: i64,
+    pub depth: i64,
+    pub parent_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -307,6 +312,7 @@ pub async fn get_accounts(db: State<'_, DbState>) -> Result<Vec<Account>, String
                 is_system: row.get(8)?,
                 is_cash_account: row.get(9)?,
                 cash_flow_category: row.get(10)?,
+                depth: 0,
                 created_at: row.get(7)?,
             })
         })
@@ -316,6 +322,23 @@ pub async fn get_accounts(db: State<'_, DbState>) -> Result<Vec<Account>, String
     for row in rows {
         accounts.push(row.map_err(|e| e.to_string())?);
     }
+
+    // Compute depth for each account based on parent chain
+    let id_to_parent: std::collections::HashMap<String, Option<String>> = accounts
+        .iter()
+        .map(|a| (a.id.clone(), a.parent_id.clone()))
+        .collect();
+    for acct in &mut accounts {
+        let mut depth = 0i64;
+        let mut current = acct.parent_id.clone();
+        while let Some(ref pid) = current {
+            depth += 1;
+            current = id_to_parent.get(pid).and_then(|p| p.clone());
+            if depth > 10 { break; } // safety limit
+        }
+        acct.depth = depth;
+    }
+
     Ok(accounts)
 }
 
@@ -494,7 +517,8 @@ pub async fn get_trial_balance(
         Some(date) => format!(
             "SELECT a.id, a.code, a.name, a.type,
                     COALESCE(SUM(je.debit), 0) AS total_debit,
-                    COALESCE(SUM(je.credit), 0) AS total_credit
+                    COALESCE(SUM(je.credit), 0) AS total_credit,
+                    a.parent_id
              FROM accounts a
              LEFT JOIN journal_entries je ON je.account_id = a.id
              LEFT JOIN transactions t ON je.transaction_id = t.id AND t.date <= '{}'{}
@@ -505,7 +529,8 @@ pub async fn get_trial_balance(
         None => format!(
             "SELECT a.id, a.code, a.name, a.type,
                     COALESCE(SUM(je.debit), 0) AS total_debit,
-                    COALESCE(SUM(je.credit), 0) AS total_credit
+                    COALESCE(SUM(je.credit), 0) AS total_credit,
+                    a.parent_id
              FROM accounts a
              LEFT JOIN journal_entries je ON je.account_id = a.id
              LEFT JOIN transactions t ON je.transaction_id = t.id{}
@@ -540,6 +565,8 @@ pub async fn get_trial_balance(
                 acct_type,
                 debit,
                 credit,
+                depth: 0,
+                parent_id: row.get(6)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -550,6 +577,22 @@ pub async fn get_trial_balance(
         if r.debit != 0 || r.credit != 0 {
             rows.push(r);
         }
+    }
+
+    // Compute depth
+    let id_to_parent: std::collections::HashMap<String, Option<String>> = rows
+        .iter()
+        .map(|r| (r.account_id.clone(), r.parent_id.clone()))
+        .collect();
+    for r in &mut rows {
+        let mut depth = 0i64;
+        let mut current = r.parent_id.clone();
+        while let Some(ref pid) = current {
+            depth += 1;
+            current = id_to_parent.get(pid).and_then(|p| p.clone());
+            if depth > 10 { break; }
+        }
+        r.depth = depth;
     }
 
     let total_debits: i64 = rows.iter().map(|r| r.debit).sum();
@@ -583,7 +626,7 @@ pub async fn get_income_statement(
 
     let query = format!(
         "SELECT a.id, a.code, a.name, a.type,
-                COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0)
+                COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0), a.parent_id
          FROM accounts a
          LEFT JOIN journal_entries je ON je.account_id = a.id
          LEFT JOIN transactions t ON je.transaction_id = t.id AND t.date >= ?1 AND t.date <= ?2{}
@@ -602,16 +645,16 @@ pub async fn get_income_statement(
         } else {
             total_credit - total_debit
         };
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, acct_type, balance))
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, acct_type, balance, row.get::<_, Option<String>>(6)?))
     }).map_err(|e| e.to_string())?;
 
     let mut revenue = Vec::new();
     let mut expenses = Vec::new();
 
     for row in rows {
-        let (id, code, name, acct_type, balance) = row.map_err(|e| e.to_string())?;
+        let (id, code, name, acct_type, balance, parent_id) = row.map_err(|e| e.to_string())?;
         if balance == 0 { continue; }
-        let item = AccountBalanceItem { account_id: id, code, name, balance };
+        let item = AccountBalanceItem { account_id: id, code, name, balance, depth: 0, parent_id };
         match acct_type.as_str() {
             "REVENUE" => revenue.push(item),
             "EXPENSE" => expenses.push(item),
@@ -643,7 +686,7 @@ pub async fn get_balance_sheet(
 
     let mut stmt = conn.prepare(
         "SELECT a.id, a.code, a.name, a.type,
-                COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0)
+                COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0), a.parent_id
          FROM accounts a
          LEFT JOIN journal_entries je ON je.account_id = a.id
          LEFT JOIN transactions t ON je.transaction_id = t.id AND t.date <= ?1
@@ -660,7 +703,7 @@ pub async fn get_balance_sheet(
         } else {
             total_credit - total_debit
         };
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, acct_type, balance))
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, acct_type, balance, row.get::<_, Option<String>>(6)?))
     }).map_err(|e| e.to_string())?;
 
     let mut assets = Vec::new();
@@ -669,9 +712,9 @@ pub async fn get_balance_sheet(
     let mut net_income: i64 = 0;
 
     for row in rows {
-        let (id, code, name, acct_type, balance) = row.map_err(|e| e.to_string())?;
+        let (id, code, name, acct_type, balance, parent_id) = row.map_err(|e| e.to_string())?;
         if balance == 0 { continue; }
-        let item = AccountBalanceItem { account_id: id, code, name, balance };
+        let item = AccountBalanceItem { account_id: id, code, name, balance, depth: 0, parent_id };
         match acct_type.as_str() {
             "ASSET" => assets.push(item),
             "LIABILITY" => liabilities.push(item),

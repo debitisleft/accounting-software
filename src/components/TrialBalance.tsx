@@ -64,10 +64,12 @@ export function TrialBalanceReport({ version, onDrillDown }: { version: number; 
             </tr>
           </thead>
           <tbody>
-            {data.rows.map((row) => (
+            {data.rows.map((row) => {
+              const indent = (row.depth ?? 0) * 20
+              return (
               <tr key={row.account_id} style={{ borderBottom: '1px solid #ddd' }}>
                 <td style={{ padding: '6px 8px', fontFamily: 'monospace' }}>{row.code}</td>
-                <td style={{ padding: '6px 8px' }}>
+                <td style={{ padding: '6px 8px', paddingLeft: `${8 + indent}px` }}>
                   {onDrillDown ? (
                     <a href="#" onClick={(e) => { e.preventDefault(); onDrillDown(row.account_id) }} style={{ color: '#1976d2', textDecoration: 'none' }}>{row.name}</a>
                   ) : row.name}
@@ -79,7 +81,7 @@ export function TrialBalanceReport({ version, onDrillDown }: { version: number; 
                   {formatCents(row.credit)}
                 </td>
               </tr>
-            ))}
+            )})}
           </tbody>
           <tfoot>
             <tr style={{ borderTop: '2px solid #333', fontWeight: 'bold' }}>

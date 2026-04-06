@@ -182,6 +182,7 @@ export class MockApi {
         is_system: systemCodes.has(s.code) ? 1 : 0,
         is_cash_account: cashCodes.has(s.code) ? 1 : 0,
         cash_flow_category: null,
+        depth: 0,
         created_at: now,
       })
     }
@@ -189,7 +190,20 @@ export class MockApi {
 
   getAccounts(): Account[] {
     this.guardFileOpen()
-    return this.accounts.filter((a) => a.is_active === 1).sort((a, b) => a.code.localeCompare(b.code))
+    const active = this.accounts.filter((a) => a.is_active === 1)
+    // Compute depth
+    const idToParent = new Map(this.accounts.map((a) => [a.id, a.parent_id]))
+    for (const acct of active) {
+      let depth = 0
+      let current = acct.parent_id
+      while (current) {
+        depth++
+        current = idToParent.get(current) ?? null
+        if (depth > 10) break
+      }
+      acct.depth = depth
+    }
+    return active.sort((a, b) => a.code.localeCompare(b.code))
   }
 
   createTransaction(data: {
@@ -326,6 +340,8 @@ export class MockApi {
           type: acct.type,
           debit,
           credit,
+          depth: acct.depth ?? 0,
+          parent_id: acct.parent_id,
         })
       }
     }
@@ -357,7 +373,7 @@ export class MockApi {
       const balance = isDebitNormal(acct.type) ? totalDebit - totalCredit : totalCredit - totalDebit
       if (balance === 0) continue
 
-      const item = { account_id: acct.id, code: acct.code, name: acct.name, balance }
+      const item = { account_id: acct.id, code: acct.code, name: acct.name, balance, depth: acct.depth ?? 0, parent_id: acct.parent_id }
       if (acct.type === 'REVENUE') revenue.push(item)
       else expenses.push(item)
     }
@@ -397,7 +413,7 @@ export class MockApi {
         : totalCredit - totalDebit
       if (balance === 0) continue
 
-      const item = { account_id: acct.id, code: acct.code, name: acct.name, balance }
+      const item = { account_id: acct.id, code: acct.code, name: acct.name, balance, depth: acct.depth ?? 0, parent_id: acct.parent_id }
       switch (acct.type) {
         case 'ASSET': assets.push(item); break
         case 'LIABILITY': liabilities.push(item); break
@@ -842,6 +858,10 @@ export class MockApi {
       normal_balance: isDebitNormal(data.acctType) ? 'DEBIT' : 'CREDIT',
       parent_id: data.parentId ?? null,
       is_active: 1,
+      is_system: 0,
+      is_cash_account: 0,
+      cash_flow_category: null,
+      depth: 0,
       created_at: Date.now(),
     })
     return id

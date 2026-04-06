@@ -15,19 +15,23 @@ interface AccountWithBalance extends Account {
   balance: number
 }
 
-function AddAccountForm({ onCreated }: { onCreated: () => void }) {
+function AddAccountForm({ onCreated, accounts }: { onCreated: () => void; accounts: Account[] }) {
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
   const [acctType, setAcctType] = useState('ASSET')
+  const [parentId, setParentId] = useState('')
   const [error, setError] = useState('')
+
+  const parentOptions = accounts.filter((a) => a.type === acctType)
 
   const handleSubmit = async () => {
     setError('')
     try {
-      await api.createAccount({ code, name, acctType })
+      await api.createAccount({ code, name, acctType, parentId: parentId || undefined })
       setCode('')
       setName('')
       setAcctType('ASSET')
+      setParentId('')
       onCreated()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -47,12 +51,21 @@ function AddAccountForm({ onCreated }: { onCreated: () => void }) {
         </label>
         <label style={{ fontSize: '13px' }}>
           Type
-          <select value={acctType} onChange={(e) => setAcctType(e.target.value)} style={{ display: 'block', padding: '4px' }}>
+          <select value={acctType} onChange={(e) => { setAcctType(e.target.value); setParentId('') }} style={{ display: 'block', padding: '4px' }}>
             <option value="ASSET">Asset</option>
             <option value="LIABILITY">Liability</option>
             <option value="EQUITY">Equity</option>
             <option value="REVENUE">Revenue</option>
             <option value="EXPENSE">Expense</option>
+          </select>
+        </label>
+        <label style={{ fontSize: '13px' }}>
+          Parent
+          <select value={parentId} onChange={(e) => setParentId(e.target.value)} style={{ display: 'block', padding: '4px' }}>
+            <option value="">(None — top level)</option>
+            {parentOptions.map((a) => (
+              <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+            ))}
           </select>
         </label>
         <button onClick={handleSubmit} style={{ padding: '6px 16px', backgroundColor: '#4CAF50', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
@@ -143,7 +156,7 @@ export function AccountsListPage({ version }: { version: number }) {
         </div>
       </div>
 
-      {showAdd && <AddAccountForm onCreated={() => { refresh(); setShowAdd(false) }} />}
+      {showAdd && <AddAccountForm accounts={activeAccounts} onCreated={() => { refresh(); setShowAdd(false) }} />}
 
       {Object.entries(grouped).map(([type, accts]) => (
         <div key={type} style={{ marginBottom: '20px' }}>
@@ -158,14 +171,17 @@ export function AccountsListPage({ version }: { version: number }) {
               </tr>
             </thead>
             <tbody>
-              {accts.map((acct) => (
-                <tr key={acct.id}>
+              {accts.map((acct) => {
+                const indent = (acct.depth ?? 0) * 20
+                const isParent = accts.some((a) => a.parent_id === acct.id)
+                return (
+                <tr key={acct.id} style={{ fontWeight: isParent ? 600 : 'normal' }}>
                   <td style={{ padding: '4px 8px', fontFamily: 'monospace' }}>
                     {editingId === acct.id ? (
                       <input value={editCode} onChange={(e) => setEditCode(e.target.value)} style={{ width: '70px', padding: '2px' }} />
                     ) : acct.code}
                   </td>
-                  <td style={{ padding: '4px 8px' }}>
+                  <td style={{ padding: '4px 8px', paddingLeft: `${8 + indent}px` }}>
                     {editingId === acct.id ? (
                       <input value={editName} onChange={(e) => setEditName(e.target.value)} style={{ width: '200px', padding: '2px' }} />
                     ) : acct.name}
@@ -194,7 +210,7 @@ export function AccountsListPage({ version }: { version: number }) {
                     )}
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>

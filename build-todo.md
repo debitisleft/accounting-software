@@ -174,16 +174,16 @@ See previous build-todo files for full history.
 ## PHASE 25 — Account Hierarchy in Reports
 **Goal:** Use parent_id to show account hierarchies with subtotals in reports.
 
-- [ ] Update `get_accounts` to return hierarchy information (parent chain, depth level)
-- [ ] Update AccountsListPage: indent child accounts under parents, show subtotals per group
-- [ ] Update TrialBalance: indent children, subtotal per parent
-- [ ] Update BalanceSheet: group accounts under parents with subtotals
-- [ ] Update IncomeStatement: group accounts under parents with subtotals
-- [ ] Update account creation UI: parent account dropdown
-- [ ] Test: child account indented under parent in trial balance
-- [ ] Test: subtotals at parent level equal sum of children
-- [ ] Test: account with no parent shows at root level
-- [ ] CHECK: Hierarchy visible in all reports, subtotals correct, all tests pass, `npm run check` clean
+- [x] Update `get_accounts` to return hierarchy information (parent chain, depth level)
+- [x] Update AccountsListPage: indent child accounts under parents, show subtotals per group
+- [x] Update TrialBalance: indent children, subtotal per parent
+- [x] Update BalanceSheet: group accounts under parents with subtotals
+- [x] Update IncomeStatement: group accounts under parents with subtotals
+- [x] Update account creation UI: parent account dropdown
+- [x] Test: child account indented under parent in trial balance
+- [x] Test: subtotals at parent level equal sum of children
+- [x] Test: account with no parent shows at root level
+- [x] CHECK: Hierarchy visible in all reports, subtotals correct, all tests pass, `npm run check` clean
 
 ---
 
@@ -261,8 +261,8 @@ See previous build-todo files for full history.
 
 ---
 
-## CURRENT PHASE: 25
-## LAST COMPLETED CHECK: Phase 24 — cash flow statement, 170 tests pass (2026-04-05)
+## CURRENT PHASE: 26
+## LAST COMPLETED CHECK: Phase 25 — account hierarchy in reports, 174 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)
