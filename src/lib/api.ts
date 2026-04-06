@@ -233,6 +233,12 @@ export const api = {
   enterOpeningBalances: (balances: { account_id: string; balance: number }[], effectiveDate: string) =>
     invoke<string>('enter_opening_balances', { balances, effectiveDate }),
 
+  startReconciliation: (accountId: string, statementDate: string, statementBalance: number) =>
+    invoke<string>('start_reconciliation', { accountId, statementDate, statementBalance }),
+
+  completeReconciliation: (accountId: string, statementDate: string) =>
+    invoke<void>('complete_reconciliation', { accountId, statementDate }),
+
   importBankTransactions: (items: { date: string; description: string; amount: number; payee?: string; bank_ref?: string }[]) =>
     invoke<number>('import_bank_transactions', { items }),
 

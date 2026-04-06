@@ -167,6 +167,7 @@ export class MockApi {
     this.globalLocks = []
     this.modules = []
     this.pendingBankTxs = []
+    this.reconciliations = []
     this.recurringTemplates = []
     this.settings = {
       company_name: 'My Company',
@@ -1244,6 +1245,51 @@ export class MockApi {
     }
 
     return { imported, skipped, duplicates, errors }
+  }
+
+  reconciliations: {
+    id: string; account_id: string; statement_date: string; statement_balance: number;
+    book_balance: number; is_reconciled: number; reconciled_at: number | null
+  }[] = []
+
+  // ── Reconciliation ───────────────────────────────────
+  startReconciliation(accountId: string, statementDate: string, statementBalance: number): string {
+    const bookBalance = this.getAccountBalance(accountId, statementDate)
+    const id = this.genId()
+    this.reconciliations.push({
+      id, account_id: accountId, statement_date: statementDate,
+      statement_balance: statementBalance, book_balance: bookBalance,
+      is_reconciled: 0, reconciled_at: null,
+    })
+    return id
+  }
+
+  getReconciliation(reconciliationId: string): typeof this.reconciliations[0] & { difference: number } {
+    const rec = this.reconciliations.find((r) => r.id === reconciliationId)
+    if (!rec) throw new Error(`Reconciliation not found: ${reconciliationId}`)
+    return { ...rec, difference: rec.statement_balance - rec.book_balance }
+  }
+
+  completeReconciliation(reconciliationId: string): void {
+    const rec = this.reconciliations.find((r) => r.id === reconciliationId)
+    if (!rec) throw new Error(`Reconciliation not found: ${reconciliationId}`)
+
+    const diff = rec.statement_balance - rec.book_balance
+    if (diff !== 0) throw new Error(`Cannot reconcile: difference of ${diff} cents`)
+
+    rec.is_reconciled = 1
+    rec.reconciled_at = Date.now()
+
+    // Lock the period through the statement date
+    if (!this.globalLocks.some((gl) => gl.end_date >= rec.statement_date)) {
+      this.globalLocks.push({ id: this.genId(), end_date: rec.statement_date, locked_at: Date.now() })
+    }
+  }
+
+  listReconciliationHistory(accountId: string): typeof this.reconciliations {
+    return this.reconciliations
+      .filter((r) => r.account_id === accountId && r.is_reconciled === 1)
+      .sort((a, b) => b.statement_date.localeCompare(a.statement_date))
   }
 
   // ── Bank Feed ──────────────────────────────────────────

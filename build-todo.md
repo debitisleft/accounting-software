@@ -249,20 +249,20 @@ See previous build-todo files for full history.
 - [x] CHECK: Can connect bank, pull transactions, approve/dismiss, all balanced, `npm run check` clean
 
 ## PHASE 31 — Reconciliation Service
-- [ ] Book balance vs statement balance comparison per account per period
-- [ ] Match transactions to bank feed items (auto-match + manual match)
-- [ ] Reconciliation report: matched, unmatched, adjustments needed
-- [ ] Lock period when reconciled (uses period locking)
-- [ ] Reconciliation history: past reconciliations with dates and balances
-- [ ] Test: reconciliation identifies matched and unmatched items
-- [ ] Test: completing reconciliation locks the period
-- [ ] Test: locked reconciled period prevents edits
-- [ ] CHECK: Can reconcile an account, lock period, view history, `npm run check` clean
+- [x] Book balance vs statement balance comparison per account per period
+- [x] Match transactions to bank feed items (auto-match + manual match)
+- [x] Reconciliation report: matched, unmatched, adjustments needed
+- [x] Lock period when reconciled (uses period locking)
+- [x] Reconciliation history: past reconciliations with dates and balances
+- [x] Test: reconciliation identifies matched and unmatched items
+- [x] Test: completing reconciliation locks the period
+- [x] Test: locked reconciled period prevents edits
+- [x] CHECK: Can reconcile an account, lock period, view history, `npm run check` clean
 
 ---
 
-## CURRENT PHASE: 31
-## LAST COMPLETED CHECK: Phase 30 — bank feed pipeline, 189 tests pass (2026-04-05)
+## CURRENT PHASE: 32
+## LAST COMPLETED CHECK: Phase 31 — reconciliation service, 194 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)

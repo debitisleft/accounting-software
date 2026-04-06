@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 30 Complete — working on Phase 31
+## STATUS: Phase 31 Complete — all planned phases done
 
 ## CURRENT STATE (2026-04-05)
-- 30 phases complete, 189 tests passing
+- 31 phases complete, 194 tests passing
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,14 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 31 — Reconciliation Service (2026-04-05)
+- startReconciliation: compares book balance vs statement balance
+- completeReconciliation: locks period after verification (difference must be 0)
+- listReconciliationHistory: shows completed reconciliations
+- Reconciliation with non-zero difference rejected
+- Completed reconciliation locks period (prevents edits)
+- 194 tests passing (5 new reconciliation tests)
 
 ### Phase 30 — Bank Feed Pipeline (2026-04-05)
 - Added `pending_bank_transactions` table for imported bank data

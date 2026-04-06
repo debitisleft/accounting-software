@@ -1358,6 +1358,84 @@ pub async fn get_module(db: State<'_, DbState>, module_id: String) -> Result<Mod
     ).map_err(|_| format!("Module not found: {}", module_id))
 }
 
+// ── Phase 31: Reconciliation Service ─────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct ReconciliationInfo {
+    pub id: String,
+    pub account_id: String,
+    pub statement_date: String,
+    pub statement_balance: i64,
+    pub book_balance: i64,
+    pub difference: i64,
+    pub is_reconciled: i64,
+    pub reconciled_at: Option<i64>,
+}
+
+#[tauri::command]
+pub async fn start_reconciliation(
+    db: State<'_, DbState>,
+    account_id: String,
+    statement_date: String,
+    statement_balance: i64,
+) -> Result<String, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Calculate book balance
+    let acct_type: String = conn.query_row(
+        "SELECT type FROM accounts WHERE id = ?1", params![account_id], |row| row.get(0),
+    ).map_err(|_| format!("Account not found: {}", account_id))?;
+
+    let (total_debit, total_credit): (i64, i64) = conn.query_row(
+        "SELECT COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0)
+         FROM journal_entries je JOIN transactions t ON je.transaction_id = t.id
+         WHERE je.account_id = ?1 AND t.date <= ?2",
+        params![account_id, statement_date],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(|e| e.to_string())?;
+
+    let book_balance = if is_debit_normal(&acct_type) { total_debit - total_credit } else { total_credit - total_debit };
+
+    let id = Uuid::new_v4().to_string();
+    // Store in reconciliation_periods table with special format
+    let now = Utc::now().timestamp();
+    conn.execute(
+        "INSERT INTO reconciliation_periods (id, account_id, period_start, period_end, is_locked, locked_at)
+         VALUES (?1, ?2, ?3, ?4, 0, ?5)",
+        params![id, format!("RECON:{}", account_id), statement_date, format!("{}|{}|{}", statement_balance, book_balance, 0), now],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn complete_reconciliation(
+    db: State<'_, DbState>,
+    account_id: String,
+    statement_date: String,
+) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Lock the period
+    let already_locked: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM reconciliation_periods WHERE account_id = 'GLOBAL' AND period_end >= ?1 AND is_locked = 1",
+        params![statement_date], |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    if !already_locked {
+        let lock_id = Uuid::new_v4().to_string();
+        let now = Utc::now().timestamp();
+        conn.execute(
+            "INSERT INTO reconciliation_periods (id, account_id, period_start, period_end, is_locked, locked_at)
+             VALUES (?1, 'GLOBAL', '0000-01-01', ?2, 1, ?3)",
+            params![lock_id, statement_date, now],
+        ).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 // ── Phase 30: Bank Feed Pipeline ─────────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]
