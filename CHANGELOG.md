@@ -1,16 +1,30 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 18 Complete + Engine Audit — working on Phase 19
+## STATUS: Phase 20 Complete — working on Phase 21
 
 ## CURRENT STATE (2026-04-05)
-- 18 phases complete, 140 tests passing (85 existing + 55 audit)
+- 20 phases complete, 146 tests passing
 - 35+ Rust commands, full MockApi coverage
-- Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry,
-  transaction register with edit/void, audit trail, period locking, backup/restore, CSV export,
-  settings/preferences, report drill-downs with account ledger, print-friendly reports
+- Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
+  with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
+  transaction register with edit/void and journal type badges, audit trail, period locking,
+  backup/restore, CSV export, settings/preferences, report drill-downs with account ledger,
+  print-friendly reports, report filters for adjusting/closing entries
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 20 — Journal Types & Transaction Classification (2026-04-05)
+- Added `journal_type` column to transactions table (migration, defaults to GENERAL)
+- Valid types: GENERAL, ADJUSTING, CLOSING, REVERSING, OPENING
+- Users can only create GENERAL and ADJUSTING entries; CLOSING/REVERSING/OPENING are system-only
+- Auto-reference numbers: GJ-0001, AJ-0001, etc. — counter per type stored in settings
+- JournalEntryForm: journal type dropdown (General / Adjusting)
+- TransactionRegister: colored badge for non-GENERAL types (ADJ=blue, CLO=purple, REV=orange)
+- Income statement & trial balance: filter toggles for adjusting/closing entries
+- Voiding a transaction now creates a REVERSING journal type
+- All changes in Rust, api.ts, and MockApi
+- 146 tests passing (6 new journal type tests)
 
 ### Engine Audit Bug Fixes (2026-04-05)
 - Fixed: createTransaction now checks period locks (was CRITICAL — locked periods were bypassable)

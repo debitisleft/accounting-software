@@ -14,12 +14,18 @@ function formatCents(cents: number): string {
 export function IncomeStatementReport({ version }: { version: number }) {
   const [startDate, setStartDate] = useState('2026-01-01')
   const [endDate, setEndDate] = useState('2026-12-31')
+  const [includeAdjusting, setIncludeAdjusting] = useState(true)
+  const [excludeClosing, setExcludeClosing] = useState(true)
   const [report, setReport] = useState<IncomeStatementResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api.getIncomeStatement(startDate, endDate).then(setReport).catch((e) => setError(String(e)))
-  }, [version, startDate, endDate])
+    const excludeTypes: string[] = []
+    if (!includeAdjusting) excludeTypes.push('ADJUSTING')
+    if (excludeClosing) excludeTypes.push('CLOSING')
+    api.getIncomeStatement(startDate, endDate, excludeTypes.length > 0 ? excludeTypes : undefined)
+      .then(setReport).catch((e) => setError(String(e)))
+  }, [version, startDate, endDate, includeAdjusting, excludeClosing])
 
   if (error) return <div>Error: {error}</div>
   if (!report) return <div>Loading...</div>
@@ -31,7 +37,7 @@ export function IncomeStatementReport({ version }: { version: number }) {
         <button onClick={async () => { const csv = await api.exportCsv('IncomeStatement', { startDate, endDate }); downloadCsv(csv, 'income-statement.csv') }} style={{ padding: '6px 12px', cursor: 'pointer', fontSize: '12px' }}>Export CSV</button>
       </div>
 
-      <div style={{ display: 'flex', gap: '16px', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '12px' }}>
         <label>
           From:
           <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{ marginLeft: '8px', padding: '4px' }} />
@@ -39,6 +45,16 @@ export function IncomeStatementReport({ version }: { version: number }) {
         <label>
           To:
           <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{ marginLeft: '8px', padding: '4px' }} />
+        </label>
+      </div>
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', fontSize: '13px' }}>
+        <label>
+          <input type="checkbox" checked={includeAdjusting} onChange={(e) => setIncludeAdjusting(e.target.checked)} />
+          {' '}Include adjusting entries
+        </label>
+        <label>
+          <input type="checkbox" checked={excludeClosing} onChange={(e) => setExcludeClosing(e.target.checked)} />
+          {' '}Exclude closing entries
         </label>
       </div>
 

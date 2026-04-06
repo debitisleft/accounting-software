@@ -31,6 +31,7 @@ export function JournalEntryForm({
 }) {
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0])
   const [description, setDescription] = useState('')
+  const [journalType, setJournalType] = useState<'GENERAL' | 'ADJUSTING'>('GENERAL')
   const [rows, setRows] = useState<EntryRow[]>([emptyRow(), emptyRow()])
   const [saveMessage, setSaveMessage] = useState('')
   const [accountList, setAccountList] = useState<Account[]>([])
@@ -76,10 +77,12 @@ export function JournalEntryForm({
       const txId = await api.createTransaction({
         date,
         description: description.trim(),
+        journal_type: journalType,
         entries,
       })
       setSaveMessage(`Transaction ${txId.slice(0, 8)}... saved!`)
       setDescription('')
+      setJournalType('GENERAL')
       setRows([emptyRow(), emptyRow()])
       onSaved()
     } catch (err) {
@@ -107,6 +110,17 @@ export function JournalEntryForm({
             onChange={(e) => setDate(e.target.value)}
             style={{ marginLeft: '8px', padding: '4px' }}
           />
+        </label>
+        <label>
+          Type:
+          <select
+            value={journalType}
+            onChange={(e) => setJournalType(e.target.value as 'GENERAL' | 'ADJUSTING')}
+            style={{ marginLeft: '8px', padding: '4px' }}
+          >
+            <option value="GENERAL">General</option>
+            <option value="ADJUSTING">Adjusting</option>
+          </select>
         </label>
         <label style={{ flex: 1 }}>
           Description:

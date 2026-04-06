@@ -316,7 +316,8 @@ export function TransactionRegister({ version }: { version: number }) {
                     <span style={{ fontSize: '13px' }}>{tx.description}</span>
                     <span style={{ fontSize: '12px', color: '#666' }}>{accountLabel}</span>
                     <span style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: '13px' }}>{formatCents(totalDebit)}</span>
-                    <span style={{ textAlign: 'center' }}>
+                    <span style={{ textAlign: 'center', display: 'flex', gap: '3px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                      {tx.journal_type && tx.journal_type !== 'GENERAL' ? <span style={{ backgroundColor: tx.journal_type === 'ADJUSTING' ? '#2196F3' : tx.journal_type === 'CLOSING' ? '#9C27B0' : tx.journal_type === 'REVERSING' ? '#FF9800' : '#607D8B', color: '#fff', padding: '1px 6px', borderRadius: '3px', fontSize: '10px', fontWeight: 'bold' }}>{tx.journal_type.slice(0, 3)}</span> : null}
                       {tx.is_void ? <span style={{ backgroundColor: '#f44336', color: '#fff', padding: '1px 6px', borderRadius: '3px', fontSize: '10px', fontWeight: 'bold' }}>VOID</span> : null}
                       {isLocked && !tx.is_void ? <span style={{ fontSize: '12px' }} title="Period locked">🔒</span> : null}
                     </span>

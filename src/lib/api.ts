@@ -47,6 +47,7 @@ export interface TransactionWithEntries {
   date: string
   description: string
   reference: string | null
+  journal_type: string
   is_locked: number
   is_void: number
   void_of: string | null
@@ -225,6 +226,7 @@ export const api = {
     date: string
     description: string
     reference?: string
+    journal_type?: string
     entries: JournalEntryInput[]
   }) =>
     invoke<string>('create_transaction', data),
@@ -235,15 +237,17 @@ export const api = {
       asOfDate: asOfDate ?? null,
     }),
 
-  getTrialBalance: (asOfDate?: string) =>
+  getTrialBalance: (asOfDate?: string, excludeJournalTypes?: string[]) =>
     invoke<TrialBalanceResult>('get_trial_balance', {
       asOfDate: asOfDate ?? null,
+      excludeJournalTypes: excludeJournalTypes ?? null,
     }),
 
-  getIncomeStatement: (startDate: string, endDate: string) =>
+  getIncomeStatement: (startDate: string, endDate: string, excludeJournalTypes?: string[]) =>
     invoke<IncomeStatementResult>('get_income_statement', {
       startDate,
       endDate,
+      excludeJournalTypes: excludeJournalTypes ?? null,
     }),
 
   getBalanceSheet: (asOfDate: string) =>

@@ -146,6 +146,11 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         conn.execute_batch("ALTER TABLE audit_log ADD COLUMN transaction_id TEXT;")?;
     }
 
+    // Migration: add journal_type column to transactions if not present
+    if !cols.iter().any(|c| c == "journal_type") {
+        conn.execute_batch("ALTER TABLE transactions ADD COLUMN journal_type TEXT NOT NULL DEFAULT 'GENERAL';")?;
+    }
+
     Ok(())
 }
 

@@ -217,6 +217,7 @@ pub struct TransactionWithEntries {
     pub date: String,
     pub description: String,
     pub reference: Option<String>,
+    pub journal_type: String,
     pub is_locked: i64,
     pub is_void: i64,
     pub void_of: Option<String>,
@@ -318,8 +319,19 @@ pub async fn create_transaction(
     date: String,
     description: String,
     reference: Option<String>,
+    journal_type: Option<String>,
     entries: Vec<JournalEntryInput>,
 ) -> Result<String, String> {
+    let jtype = journal_type.unwrap_or_else(|| "GENERAL".to_string());
+    let valid_types = ["GENERAL", "ADJUSTING", "CLOSING", "REVERSING", "OPENING"];
+    if !valid_types.contains(&jtype.as_str()) {
+        return Err(format!("Invalid journal type: {}", jtype));
+    }
+    // Users cannot manually create system journal types
+    if matches!(jtype.as_str(), "CLOSING" | "REVERSING" | "OPENING") {
+        return Err(format!("Cannot manually create {} journal entries", jtype));
+    }
+
     let total_debit: i64 = entries.iter().map(|e| e.debit).sum();
     let total_credit: i64 = entries.iter().map(|e| e.credit).sum();
 
@@ -362,12 +374,35 @@ pub async fn create_transaction(
         }
     }
 
+    // Auto-reference number if not provided
+    let final_reference = if reference.as_ref().map_or(true, |r| r.is_empty()) {
+        let prefix = match jtype.as_str() {
+            "GENERAL" => "GJ", "ADJUSTING" => "AJ", "CLOSING" => "CJ",
+            "REVERSING" => "RJ", "OPENING" => "OJ", _ => "GJ",
+        };
+        let counter_key = format!("next_ref_{}", jtype.to_lowercase());
+        let counter: i64 = conn.query_row(
+            "SELECT value FROM settings WHERE key = ?1",
+            params![counter_key],
+            |row| row.get::<_, String>(0),
+        ).map(|v| v.parse::<i64>().unwrap_or(1))
+            .unwrap_or(1);
+        let auto_ref = format!("{}-{:04}", prefix, counter);
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+            params![counter_key, (counter + 1).to_string()],
+        ).map_err(|e| e.to_string())?;
+        Some(auto_ref)
+    } else {
+        reference
+    };
+
     conn.execute("BEGIN", []).map_err(|e| e.to_string())?;
 
     let insert_result = (|| -> Result<(), String> {
         conn.execute(
-            "INSERT INTO transactions (id, date, description, reference, is_locked, created_at) VALUES (?1, ?2, ?3, ?4, 0, ?5)",
-            params![tx_id, date, description, reference, now],
+            "INSERT INTO transactions (id, date, description, reference, journal_type, is_locked, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)",
+            params![tx_id, date, description, final_reference, jtype, now],
         ).map_err(|e| e.to_string())?;
 
         for entry in &entries {
@@ -436,9 +471,18 @@ pub async fn get_account_balance(
 pub async fn get_trial_balance(
     db: State<'_, DbState>,
     as_of_date: Option<String>,
+    exclude_journal_types: Option<Vec<String>>,
 ) -> Result<TrialBalanceResult, String> {
     let guard = get_conn(&db)?;
     let conn = guard.as_ref().unwrap();
+
+    let exclude_clause = match &exclude_journal_types {
+        Some(types) if !types.is_empty() => {
+            let quoted: Vec<String> = types.iter().map(|t| format!("'{}'", t)).collect();
+            format!(" AND t.journal_type NOT IN ({})", quoted.join(","))
+        }
+        _ => String::new(),
+    };
 
     let query = match &as_of_date {
         Some(date) => format!(
@@ -447,19 +491,22 @@ pub async fn get_trial_balance(
                     COALESCE(SUM(je.credit), 0) AS total_credit
              FROM accounts a
              LEFT JOIN journal_entries je ON je.account_id = a.id
-             LEFT JOIN transactions t ON je.transaction_id = t.id AND t.date <= '{}'
+             LEFT JOIN transactions t ON je.transaction_id = t.id AND t.date <= '{}'{}
              WHERE a.is_active = 1
              GROUP BY a.id ORDER BY a.code",
-            date
+            date, exclude_clause
         ),
-        None => "SELECT a.id, a.code, a.name, a.type,
+        None => format!(
+            "SELECT a.id, a.code, a.name, a.type,
                     COALESCE(SUM(je.debit), 0) AS total_debit,
                     COALESCE(SUM(je.credit), 0) AS total_credit
              FROM accounts a
              LEFT JOIN journal_entries je ON je.account_id = a.id
+             LEFT JOIN transactions t ON je.transaction_id = t.id{}
              WHERE a.is_active = 1
-             GROUP BY a.id ORDER BY a.code"
-            .to_string(),
+             GROUP BY a.id ORDER BY a.code",
+            exclude_clause
+        ),
     };
 
     let mut stmt = conn.prepare(&query).map_err(|e| e.to_string())?;
@@ -515,19 +562,30 @@ pub async fn get_income_statement(
     db: State<'_, DbState>,
     start_date: String,
     end_date: String,
+    exclude_journal_types: Option<Vec<String>>,
 ) -> Result<IncomeStatementResult, String> {
     let guard = get_conn(&db)?;
     let conn = guard.as_ref().unwrap();
 
-    let mut stmt = conn.prepare(
+    let exclude_clause = match &exclude_journal_types {
+        Some(types) if !types.is_empty() => {
+            let quoted: Vec<String> = types.iter().map(|t| format!("'{}'", t)).collect();
+            format!(" AND t.journal_type NOT IN ({})", quoted.join(","))
+        }
+        _ => String::new(),
+    };
+
+    let query = format!(
         "SELECT a.id, a.code, a.name, a.type,
                 COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0)
          FROM accounts a
          LEFT JOIN journal_entries je ON je.account_id = a.id
-         LEFT JOIN transactions t ON je.transaction_id = t.id AND t.date >= ?1 AND t.date <= ?2
+         LEFT JOIN transactions t ON je.transaction_id = t.id AND t.date >= ?1 AND t.date <= ?2{}
          WHERE a.is_active = 1 AND a.type IN ('REVENUE', 'EXPENSE')
-         GROUP BY a.id ORDER BY a.code"
-    ).map_err(|e| e.to_string())?;
+         GROUP BY a.id ORDER BY a.code",
+        exclude_clause
+    );
+    let mut stmt = conn.prepare(&query).map_err(|e| e.to_string())?;
 
     let rows = stmt.query_map(params![start_date, end_date], |row| {
         let acct_type: String = row.get(3)?;
@@ -668,7 +726,7 @@ pub async fn get_transactions(
         format!(" WHERE {}", where_clauses.join(" AND "))
     };
 
-    let query = format!("SELECT id, date, description, reference, is_locked, created_at, is_void, void_of FROM transactions{} ORDER BY date DESC, created_at DESC", where_sql);
+    let query = format!("SELECT id, date, description, reference, is_locked, created_at, is_void, void_of, journal_type FROM transactions{} ORDER BY date DESC, created_at DESC", where_sql);
     let mut stmt = conn.prepare(&query).map_err(|e| e.to_string())?;
 
     let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|b| b.as_ref()).collect();
@@ -679,6 +737,7 @@ pub async fn get_transactions(
             date: row.get(1)?,
             description: row.get(2)?,
             reference: row.get(3)?,
+            journal_type: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "GENERAL".to_string()),
             is_locked: row.get(4)?,
             created_at: row.get(5)?,
             is_void: row.get(6)?,
@@ -884,7 +943,7 @@ pub async fn get_dashboard_summary(db: State<'_, DbState>) -> Result<DashboardSu
 
     // Recent 10 transactions
     let mut tx_stmt = conn.prepare(
-        "SELECT id, date, description, reference, is_locked, created_at, is_void, void_of FROM transactions ORDER BY date DESC, created_at DESC LIMIT 10"
+        "SELECT id, date, description, reference, is_locked, created_at, is_void, void_of, journal_type FROM transactions ORDER BY date DESC, created_at DESC LIMIT 10"
     ).map_err(|e| e.to_string())?;
 
     let tx_rows = tx_stmt.query_map([], |row| {
@@ -893,6 +952,7 @@ pub async fn get_dashboard_summary(db: State<'_, DbState>) -> Result<DashboardSu
             date: row.get(1)?,
             description: row.get(2)?,
             reference: row.get(3)?,
+            journal_type: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "GENERAL".to_string()),
             is_locked: row.get(4)?,
             created_at: row.get(5)?,
             is_void: row.get(6)?,
@@ -1169,7 +1229,7 @@ pub async fn list_transactions(
     let lim = limit.unwrap_or(50);
     let off = offset.unwrap_or(0);
     let data_query = format!(
-        "SELECT id, date, description, reference, is_locked, created_at, is_void, void_of FROM transactions t{} ORDER BY t.date DESC, t.created_at DESC LIMIT {} OFFSET {}",
+        "SELECT id, date, description, reference, is_locked, created_at, is_void, void_of, journal_type FROM transactions t{} ORDER BY t.date DESC, t.created_at DESC LIMIT {} OFFSET {}",
         where_sql, lim, off
     );
 
@@ -1180,6 +1240,7 @@ pub async fn list_transactions(
             date: row.get(1)?,
             description: row.get(2)?,
             reference: row.get(3)?,
+            journal_type: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "GENERAL".to_string()),
             is_locked: row.get(4)?,
             created_at: row.get(5)?,
             is_void: row.get(6)?,
@@ -1207,7 +1268,7 @@ pub async fn get_transaction_detail(
     let conn = guard.as_ref().unwrap();
 
     let mut tx = conn.query_row(
-        "SELECT id, date, description, reference, is_locked, created_at, is_void, void_of FROM transactions WHERE id = ?1",
+        "SELECT id, date, description, reference, is_locked, created_at, is_void, void_of, journal_type FROM transactions WHERE id = ?1",
         params![transaction_id],
         |row| {
             Ok(TransactionWithEntries {
@@ -1215,6 +1276,7 @@ pub async fn get_transaction_detail(
                 date: row.get(1)?,
                 description: row.get(2)?,
                 reference: row.get(3)?,
+                journal_type: row.get::<_, Option<String>>(8)?.unwrap_or_else(|| "GENERAL".to_string()),
                 is_locked: row.get(4)?,
                 created_at: row.get(5)?,
                 is_void: row.get(6)?,
@@ -1513,8 +1575,8 @@ pub async fn void_transaction(
         // Create reversing transaction
         let void_tx_id = Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO transactions (id, date, description, reference, is_locked, is_void, void_of, created_at)
-             VALUES (?1, ?2, ?3, ?4, 0, 0, ?5, ?6)",
+            "INSERT INTO transactions (id, date, description, reference, journal_type, is_locked, is_void, void_of, created_at)
+             VALUES (?1, ?2, ?3, ?4, 'REVERSING', 0, 0, ?5, ?6)",
             params![void_tx_id, orig_date, format!("VOID: {}", orig_desc), "VOID", transaction_id, now],
         ).map_err(|e| e.to_string())?;
 

@@ -34,6 +34,7 @@ interface StoredTransaction {
   date: string
   description: string
   reference: string | null
+  journal_type: string
   is_locked: number
   is_void: number
   void_of: string | null
@@ -188,8 +189,18 @@ export class MockApi {
     date: string
     description: string
     reference?: string
+    journal_type?: string
     entries: JournalEntryInput[]
   }): string {
+    const journalType = data.journal_type ?? 'GENERAL'
+    const validTypes = ['GENERAL', 'ADJUSTING', 'CLOSING', 'REVERSING', 'OPENING']
+    if (!validTypes.includes(journalType)) {
+      throw new Error(`Invalid journal type: ${journalType}`)
+    }
+    // Users cannot manually create system journal types
+    if (['CLOSING', 'REVERSING', 'OPENING'].includes(journalType)) {
+      throw new Error(`Cannot manually create ${journalType} journal entries`)
+    }
     // Check period locks
     if (this.globalLocks.some((gl) => gl.end_date >= data.date)) {
       throw new Error('Cannot create transaction in a locked period')
@@ -215,12 +226,26 @@ export class MockApi {
       }
     }
 
+    // Auto-reference number if not provided
+    let ref_ = data.reference ?? null
+    if (!ref_) {
+      const prefixMap: Record<string, string> = {
+        GENERAL: 'GJ', ADJUSTING: 'AJ', CLOSING: 'CJ', REVERSING: 'RJ', OPENING: 'OJ',
+      }
+      const prefix = prefixMap[journalType] ?? 'GJ'
+      const counterKey = `next_ref_${journalType.toLowerCase()}`
+      const counter = parseInt(this.settings[counterKey] ?? '1', 10)
+      ref_ = `${prefix}-${String(counter).padStart(4, '0')}`
+      this.settings[counterKey] = String(counter + 1)
+    }
+
     const txId = this.genId()
     this.transactions.push({
       id: txId,
       date: data.date,
       description: data.description,
-      reference: data.reference ?? null,
+      reference: ref_,
+      journal_type: journalType,
       is_locked: 0,
       is_void: 0,
       void_of: null,
@@ -259,17 +284,19 @@ export class MockApi {
     return isDebitNormal(acct.type) ? totalDebit - totalCredit : totalCredit - totalDebit
   }
 
-  getTrialBalance(asOfDate?: string): TrialBalanceResult {
+  getTrialBalance(asOfDate?: string, excludeJournalTypes?: string[]): TrialBalanceResult {
     const rows: AccountBalanceRow[] = []
+    const excludeTypes = new Set(excludeJournalTypes ?? [])
 
     for (const acct of this.getAccounts()) {
       let relevantEntries = this.entries.filter((e) => e.account_id === acct.id)
-      if (asOfDate) {
-        const txIds = new Set(
-          this.transactions.filter((t) => t.date <= asOfDate).map((t) => t.id),
-        )
-        relevantEntries = relevantEntries.filter((e) => txIds.has(e.transaction_id))
-      }
+      const filteredTxs = this.transactions.filter((t) => {
+        if (asOfDate && t.date > asOfDate) return false
+        if (excludeTypes.size > 0 && excludeTypes.has(t.journal_type)) return false
+        return true
+      })
+      const txIds = new Set(filteredTxs.map((t) => t.id))
+      relevantEntries = relevantEntries.filter((e) => txIds.has(e.transaction_id))
 
       const totalDebit = relevantEntries.reduce((s, e) => s + e.debit, 0)
       const totalCredit = relevantEntries.reduce((s, e) => s + e.credit, 0)
@@ -302,10 +329,11 @@ export class MockApi {
     return { rows, total_debits, total_credits, is_balanced: total_debits === total_credits }
   }
 
-  getIncomeStatement(startDate: string, endDate: string): IncomeStatementResult {
+  getIncomeStatement(startDate: string, endDate: string, excludeJournalTypes?: string[]): IncomeStatementResult {
+    const excludeTypes = new Set(excludeJournalTypes ?? [])
     const txIds = new Set(
       this.transactions
-        .filter((t) => t.date >= startDate && t.date <= endDate)
+        .filter((t) => t.date >= startDate && t.date <= endDate && !excludeTypes.has(t.journal_type))
         .map((t) => t.id),
     )
 
@@ -545,6 +573,7 @@ export class MockApi {
       date: tx.date,
       description: `VOID: ${tx.description}`,
       reference: 'VOID',
+      journal_type: 'REVERSING',
       is_locked: 0,
       is_void: 0,
       void_of: transactionId,

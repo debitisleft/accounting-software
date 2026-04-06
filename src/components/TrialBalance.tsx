@@ -13,10 +13,16 @@ function formatCents(cents: number): string {
 export function TrialBalanceReport({ version, onDrillDown }: { version: number; onDrillDown?: (accountId: string) => void }) {
   const [data, setData] = useState<TrialBalanceResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [includeAdjusting, setIncludeAdjusting] = useState(true)
+  const [excludeClosing, setExcludeClosing] = useState(true)
 
   useEffect(() => {
-    api.getTrialBalance().then(setData).catch((e) => setError(String(e)))
-  }, [version])
+    const excludeTypes: string[] = []
+    if (!includeAdjusting) excludeTypes.push('ADJUSTING')
+    if (excludeClosing) excludeTypes.push('CLOSING')
+    api.getTrialBalance(undefined, excludeTypes.length > 0 ? excludeTypes : undefined)
+      .then(setData).catch((e) => setError(String(e)))
+  }, [version, includeAdjusting, excludeClosing])
 
   if (error) return <div>Error: {error}</div>
   if (!data) return <div>Loading...</div>
@@ -26,6 +32,17 @@ export function TrialBalanceReport({ version, onDrillDown }: { version: number; 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Trial Balance</h2>
         <button onClick={async () => { const csv = await api.exportCsv('TrialBalance'); downloadCsv(csv, 'trial-balance.csv') }} style={{ padding: '6px 12px', cursor: 'pointer', fontSize: '12px' }}>Export CSV</button>
+      </div>
+
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', fontSize: '13px' }}>
+        <label>
+          <input type="checkbox" checked={includeAdjusting} onChange={(e) => setIncludeAdjusting(e.target.checked)} />
+          {' '}Include adjusting entries
+        </label>
+        <label>
+          <input type="checkbox" checked={excludeClosing} onChange={(e) => setExcludeClosing(e.target.checked)} />
+          {' '}Exclude closing entries
+        </label>
       </div>
 
       {!data.is_balanced && (

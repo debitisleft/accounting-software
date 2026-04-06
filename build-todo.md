@@ -36,21 +36,21 @@ See previous build-todo files for full history.
 ## PHASE 20 — Journal Types & Transaction Classification
 **Goal:** Add journal type classification to transactions. Required before fiscal year close.
 
-- [ ] Add `journal_type TEXT DEFAULT 'GENERAL'` column to transactions table (migration)
+- [x] Add `journal_type TEXT DEFAULT 'GENERAL'` column to transactions table (migration)
   - Valid values: `GENERAL`, `ADJUSTING`, `CLOSING`, `REVERSING`, `OPENING`
-- [ ] Update `createTransaction` in Rust + api.ts + MockApi to accept optional `journal_type` parameter (defaults to GENERAL)
-- [ ] Add `auto_reference_number` logic: auto-generate reference if not provided
+- [x] Update `createTransaction` in Rust + api.ts + MockApi to accept optional `journal_type` parameter (defaults to GENERAL)
+- [x] Add `auto_reference_number` logic: auto-generate reference if not provided
   - Format: `GJ-0001`, `AJ-0001`, `CJ-0001` by journal type
   - Counter stored in settings table per type
-- [ ] Update JournalEntryForm: journal type dropdown (default GENERAL, options: General, Adjusting)
+- [x] Update JournalEntryForm: journal type dropdown (default GENERAL, options: General, Adjusting)
   - Users should NOT manually create CLOSING, REVERSING, or OPENING entries — those are system-generated
-- [ ] Update TransactionRegister: show journal type as badge/tag on each row
-- [ ] Update income statement + trial balance: add filter toggle "Include adjusting entries" / "Exclude closing entries"
-- [ ] Test: transaction created with default type is GENERAL
-- [ ] Test: transaction created with ADJUSTING type is stored correctly
-- [ ] Test: auto-reference generates sequential numbers per type
-- [ ] Test: CLOSING and OPENING types cannot be manually created (only via system commands)
-- [ ] CHECK: Journal types visible in register, filters work, auto-reference works, all tests pass, `npm run check` clean
+- [x] Update TransactionRegister: show journal type as badge/tag on each row
+- [x] Update income statement + trial balance: add filter toggle "Include adjusting entries" / "Exclude closing entries"
+- [x] Test: transaction created with default type is GENERAL
+- [x] Test: transaction created with ADJUSTING type is stored correctly
+- [x] Test: auto-reference generates sequential numbers per type
+- [x] Test: CLOSING and OPENING types cannot be manually created (only via system commands)
+- [x] CHECK: Journal types visible in register, filters work, auto-reference works, all tests pass, `npm run check` clean
 
 ---
 
@@ -276,8 +276,8 @@ See previous build-todo files for full history.
 
 ---
 
-## CURRENT PHASE: 20
-## LAST COMPLETED CHECK: Phase 19 — engine audit bug fixes, 140 tests pass (2026-04-05)
+## CURRENT PHASE: 21
+## LAST COMPLETED CHECK: Phase 20 — journal types & transaction classification, 146 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)
