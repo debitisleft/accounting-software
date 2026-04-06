@@ -1353,6 +1353,176 @@ pub async fn get_module(db: State<'_, DbState>, module_id: String) -> Result<Mod
     ).map_err(|_| format!("Module not found: {}", module_id))
 }
 
+// ── Phase 28: Recurring Transactions ─────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RecurringEntryInput {
+    pub account_id: String,
+    pub debit: i64,
+    pub credit: i64,
+    pub memo: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecurringTemplate {
+    pub id: String,
+    pub description: String,
+    pub recurrence: String,
+    pub start_date: String,
+    pub end_date: Option<String>,
+    pub last_generated: Option<String>,
+    pub is_paused: i64,
+    pub entries_json: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DueRecurring {
+    pub template_id: String,
+    pub description: String,
+    pub due_date: String,
+}
+
+#[tauri::command]
+pub async fn create_recurring(
+    db: State<'_, DbState>,
+    description: String,
+    recurrence: String,
+    start_date: String,
+    end_date: Option<String>,
+    entries: Vec<RecurringEntryInput>,
+) -> Result<String, String> {
+    let valid = ["WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY"];
+    if !valid.contains(&recurrence.as_str()) {
+        return Err(format!("Invalid recurrence: {}", recurrence));
+    }
+    let total_debit: i64 = entries.iter().map(|e| e.debit).sum();
+    let total_credit: i64 = entries.iter().map(|e| e.credit).sum();
+    if total_debit != total_credit { return Err("Template entries do not balance".to_string()); }
+    if total_debit == 0 { return Err("Template must have non-zero amounts".to_string()); }
+
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    let id = Uuid::new_v4().to_string();
+    let now = Utc::now().timestamp();
+    let entries_json = serde_json::to_string(&entries).map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "INSERT INTO recurring_templates (id, description, recurrence, start_date, end_date, is_paused, entries_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)",
+        params![id, description, recurrence, start_date, end_date, entries_json, now],
+    ).map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn list_recurring(db: State<'_, DbState>) -> Result<Vec<RecurringTemplate>, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT id, description, recurrence, start_date, end_date, last_generated, is_paused, entries_json, created_at FROM recurring_templates ORDER BY description"
+    ).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| {
+        Ok(RecurringTemplate {
+            id: row.get(0)?, description: row.get(1)?, recurrence: row.get(2)?,
+            start_date: row.get(3)?, end_date: row.get(4)?, last_generated: row.get(5)?,
+            is_paused: row.get(6)?, entries_json: row.get(7)?, created_at: row.get(8)?,
+        })
+    }).map_err(|e| e.to_string())?;
+    let mut templates = Vec::new();
+    for row in rows { templates.push(row.map_err(|e| e.to_string())?); }
+    Ok(templates)
+}
+
+#[tauri::command]
+pub async fn update_recurring(
+    db: State<'_, DbState>,
+    id: String,
+    description: Option<String>,
+    recurrence: Option<String>,
+    end_date: Option<String>,
+) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    if let Some(ref d) = description {
+        conn.execute("UPDATE recurring_templates SET description = ?1 WHERE id = ?2", params![d, id]).map_err(|e| e.to_string())?;
+    }
+    if let Some(ref r) = recurrence {
+        conn.execute("UPDATE recurring_templates SET recurrence = ?1 WHERE id = ?2", params![r, id]).map_err(|e| e.to_string())?;
+    }
+    if let Some(ref ed) = end_date {
+        conn.execute("UPDATE recurring_templates SET end_date = ?1 WHERE id = ?2", params![ed, id]).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn pause_recurring(db: State<'_, DbState>, id: String) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    conn.execute("UPDATE recurring_templates SET is_paused = 1 WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn resume_recurring(db: State<'_, DbState>, id: String) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    conn.execute("UPDATE recurring_templates SET is_paused = 0 WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_recurring(db: State<'_, DbState>, id: String) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    conn.execute("DELETE FROM recurring_templates WHERE id = ?1", params![id]).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn generate_recurring(
+    db: State<'_, DbState>,
+    template_id: String,
+    date: String,
+) -> Result<String, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let (desc, entries_json, is_paused): (String, String, i64) = conn.query_row(
+        "SELECT description, entries_json, is_paused FROM recurring_templates WHERE id = ?1",
+        params![template_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).map_err(|_| format!("Recurring template not found: {}", template_id))?;
+
+    if is_paused != 0 { return Err("Cannot generate from paused template".to_string()); }
+
+    let entries: Vec<RecurringEntryInput> = serde_json::from_str(&entries_json).map_err(|e| e.to_string())?;
+    let tx_id = Uuid::new_v4().to_string();
+    let now = Utc::now().timestamp();
+
+    conn.execute("BEGIN", []).map_err(|e| e.to_string())?;
+    let result = (|| -> Result<(), String> {
+        conn.execute(
+            "INSERT INTO transactions (id, date, description, journal_type, is_locked, created_at) VALUES (?1, ?2, ?3, 'GENERAL', 0, ?4)",
+            params![tx_id, date, desc, now],
+        ).map_err(|e| e.to_string())?;
+        for entry in &entries {
+            let eid = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO journal_entries (id, transaction_id, account_id, debit, credit, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![eid, tx_id, entry.account_id, entry.debit, entry.credit, entry.memo],
+            ).map_err(|e| e.to_string())?;
+        }
+        conn.execute("UPDATE recurring_templates SET last_generated = ?1 WHERE id = ?2", params![date, template_id]).map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => { conn.execute("COMMIT", []).map_err(|e| e.to_string())?; Ok(tx_id) }
+        Err(e) => { let _ = conn.execute("ROLLBACK", []); Err(e) }
+    }
+}
+
 // ── Phase 24: Cash Flow Statement ────────────────────────
 
 #[derive(Debug, Serialize)]

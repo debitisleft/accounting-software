@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 27 Complete — working on Phase 28
+## STATUS: Phase 28 Complete — working on Phase 29
 
 ## CURRENT STATE (2026-04-05)
-- 27 phases complete, 177 tests passing
+- 28 phases complete, 182 tests passing
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,14 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 28 — Recurring Transactions (2026-04-05)
+- Added `recurring_templates` table with recurrence rules (WEEKLY/MONTHLY/QUARTERLY/YEARLY)
+- 7 Rust commands: create, list, update, pause, resume, delete, generate
+- MockApi with due date calculation, pause/resume, generation
+- RecurringTransactions.tsx management UI: create, generate, pause/resume, delete
+- Templates store entries as JSON, generate balanced transactions on demand
+- 182 tests passing (5 new recurring tests)
 
 ### Phase 27 — CSV Import with Column Mapping (2026-04-05)
 - CsvImport.tsx: file upload, CSV parsing, column preview

@@ -233,6 +233,24 @@ export const api = {
   enterOpeningBalances: (balances: { account_id: string; balance: number }[], effectiveDate: string) =>
     invoke<string>('enter_opening_balances', { balances, effectiveDate }),
 
+  createRecurring: (data: {
+    description: string; recurrence: string; start_date: string; end_date?: string;
+    entries: { account_id: string; debit: number; credit: number; memo?: string }[]
+  }) => invoke<string>('create_recurring', data),
+
+  listRecurring: () =>
+    invoke<{ id: string; description: string; recurrence: string; start_date: string; end_date: string | null; last_generated: string | null; is_paused: number; entries_json: string; created_at: number }[]>('list_recurring'),
+
+  updateRecurring: (id: string, data: { description?: string; recurrence?: string; end_date?: string }) =>
+    invoke<void>('update_recurring', { id, ...data }),
+
+  pauseRecurring: (id: string) => invoke<void>('pause_recurring', { id }),
+  resumeRecurring: (id: string) => invoke<void>('resume_recurring', { id }),
+  deleteRecurring: (id: string) => invoke<void>('delete_recurring', { id }),
+
+  generateRecurring: (templateId: string, date: string) =>
+    invoke<string>('generate_recurring', { templateId, date }),
+
   getCashFlowStatement: (startDate: string, endDate: string) =>
     invoke<{
       net_income: number

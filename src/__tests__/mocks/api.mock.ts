@@ -88,6 +88,11 @@ export class MockApi {
     date_format: 'YYYY-MM-DD',
   }
   modules: { id: string; name: string; version: string; description: string | null; table_prefix: string; enabled: number; installed_at: number }[] = []
+  recurringTemplates: {
+    id: string; description: string; recurrence: string; start_date: string; end_date: string | null;
+    last_generated: string | null; is_paused: number; entries: { account_id: string; debit: number; credit: number; memo?: string }[];
+    created_at: number
+  }[] = []
   recentFiles: RecentFile[] = []
   fileOpen = false
   currentPath: string | null = null
@@ -156,6 +161,7 @@ export class MockApi {
     this.lockPeriods = []
     this.globalLocks = []
     this.modules = []
+    this.recurringTemplates = []
     this.settings = {
       company_name: 'My Company',
       fiscal_year_start_month: '1',
@@ -1227,6 +1233,101 @@ export class MockApi {
     }
 
     return { imported, skipped, duplicates, errors }
+  }
+
+  createRecurring(data: {
+    description: string; recurrence: string; start_date: string; end_date?: string;
+    entries: { account_id: string; debit: number; credit: number; memo?: string }[]
+  }): string {
+    const valid = ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY']
+    if (!valid.includes(data.recurrence)) throw new Error(`Invalid recurrence: ${data.recurrence}`)
+    const totalDebit = data.entries.reduce((s, e) => s + e.debit, 0)
+    const totalCredit = data.entries.reduce((s, e) => s + e.credit, 0)
+    if (totalDebit !== totalCredit) throw new Error('Template entries do not balance')
+    if (totalDebit === 0) throw new Error('Template must have non-zero amounts')
+
+    const id = this.genId()
+    this.recurringTemplates.push({
+      id, description: data.description, recurrence: data.recurrence,
+      start_date: data.start_date, end_date: data.end_date ?? null,
+      last_generated: null, is_paused: 0, entries: data.entries,
+      created_at: Date.now(),
+    })
+    return id
+  }
+
+  listRecurring(): typeof this.recurringTemplates {
+    return this.recurringTemplates.slice()
+  }
+
+  updateRecurring(id: string, data: { description?: string; recurrence?: string; end_date?: string }): void {
+    const tmpl = this.recurringTemplates.find((t) => t.id === id)
+    if (!tmpl) throw new Error(`Recurring template not found: ${id}`)
+    if (data.description !== undefined) tmpl.description = data.description
+    if (data.recurrence !== undefined) tmpl.recurrence = data.recurrence
+    if (data.end_date !== undefined) tmpl.end_date = data.end_date
+  }
+
+  pauseRecurring(id: string): void {
+    const tmpl = this.recurringTemplates.find((t) => t.id === id)
+    if (!tmpl) throw new Error(`Recurring template not found: ${id}`)
+    tmpl.is_paused = 1
+  }
+
+  resumeRecurring(id: string): void {
+    const tmpl = this.recurringTemplates.find((t) => t.id === id)
+    if (!tmpl) throw new Error(`Recurring template not found: ${id}`)
+    tmpl.is_paused = 0
+  }
+
+  deleteRecurring(id: string): void {
+    const idx = this.recurringTemplates.findIndex((t) => t.id === id)
+    if (idx < 0) throw new Error(`Recurring template not found: ${id}`)
+    this.recurringTemplates.splice(idx, 1)
+  }
+
+  private nextDueDate(tmpl: typeof this.recurringTemplates[0]): string | null {
+    const base = tmpl.last_generated ?? tmpl.start_date
+    const d = new Date(base)
+    switch (tmpl.recurrence) {
+      case 'WEEKLY': d.setDate(d.getDate() + 7); break
+      case 'MONTHLY': d.setMonth(d.getMonth() + 1); break
+      case 'QUARTERLY': d.setMonth(d.getMonth() + 3); break
+      case 'YEARLY': d.setFullYear(d.getFullYear() + 1); break
+    }
+    // If no last_generated, the first due date is start_date itself
+    if (!tmpl.last_generated) return tmpl.start_date
+    const next = d.toISOString().split('T')[0]
+    if (tmpl.end_date && next > tmpl.end_date) return null
+    return next
+  }
+
+  getDueRecurring(asOfDate: string): { template_id: string; description: string; due_date: string }[] {
+    const due: { template_id: string; description: string; due_date: string }[] = []
+    for (const tmpl of this.recurringTemplates) {
+      if (tmpl.is_paused) continue
+      const dueDate = this.nextDueDate(tmpl)
+      if (dueDate && dueDate <= asOfDate) {
+        due.push({ template_id: tmpl.id, description: tmpl.description, due_date: dueDate })
+      }
+    }
+    return due
+  }
+
+  generateRecurring(templateId: string, date: string): string {
+    const tmpl = this.recurringTemplates.find((t) => t.id === templateId)
+    if (!tmpl) throw new Error(`Recurring template not found: ${templateId}`)
+    if (tmpl.is_paused) throw new Error('Cannot generate from paused template')
+
+    const txId = this.createTransaction({
+      date,
+      description: tmpl.description,
+      entries: tmpl.entries.map((e) => ({
+        account_id: e.account_id, debit: e.debit, credit: e.credit, memo: e.memo,
+      })),
+    })
+    tmpl.last_generated = date
+    return txId
   }
 
   listModules(): typeof this.modules {

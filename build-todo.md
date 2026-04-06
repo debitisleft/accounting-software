@@ -212,17 +212,17 @@ See previous build-todo files for full history.
 - [x] CHECK: Can import a bank CSV, map columns, review errors, import clean rows, `npm run check` clean
 
 ## PHASE 28 — Recurring Transactions
-- [ ] Create `recurring_templates` table (inside each .sqlite file): template of line items + recurrence rule
-- [ ] Add `create_recurring`, `list_recurring`, `update_recurring`, `pause_recurring`, `delete_recurring` Rust commands
-- [ ] Recurrence rules: weekly, monthly, quarterly, yearly, with start date and optional end date
-- [ ] On app open: check for due recurring transactions → show prompt "X recurring entries are due. Generate?"
-- [ ] "Generate" creates actual transactions from templates
-- [ ] Recurring management page: list all templates, edit, pause, delete
-- [ ] Add all commands to api.ts + MockApi
-- [ ] Test: recurring template generates correct transaction on due date
-- [ ] Test: paused template does not generate
-- [ ] Test: generated transaction has correct accounts and amounts
-- [ ] CHECK: Can create recurring template, generate due entries, pause/resume, `npm run check` clean
+- [x] Create `recurring_templates` table (inside each .sqlite file): template of line items + recurrence rule
+- [x] Add `create_recurring`, `list_recurring`, `update_recurring`, `pause_recurring`, `delete_recurring` Rust commands
+- [x] Recurrence rules: weekly, monthly, quarterly, yearly, with start date and optional end date
+- [x] On app open: check for due recurring transactions → show prompt "X recurring entries are due. Generate?"
+- [x] "Generate" creates actual transactions from templates
+- [x] Recurring management page: list all templates, edit, pause, delete
+- [x] Add all commands to api.ts + MockApi
+- [x] Test: recurring template generates correct transaction on due date
+- [x] Test: paused template does not generate
+- [x] Test: generated transaction has correct accounts and amounts
+- [x] CHECK: Can create recurring template, generate due entries, pause/resume, `npm run check` clean
 
 ## PHASE 29 — Accrual vs Cash Basis Reporting
 - [ ] Add reporting basis toggle to income statement: Accrual (default) / Cash
@@ -261,8 +261,8 @@ See previous build-todo files for full history.
 
 ---
 
-## CURRENT PHASE: 28
-## LAST COMPLETED CHECK: Phase 27 — CSV import with column mapping, 177 tests pass (2026-04-05)
+## CURRENT PHASE: 29
+## LAST COMPLETED CHECK: Phase 28 — recurring transactions, 182 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)

@@ -120,6 +120,18 @@ fn create_tables(conn: &Connection) -> Result<()> {
             value TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS recurring_templates (
+            id TEXT PRIMARY KEY,
+            description TEXT NOT NULL,
+            recurrence TEXT NOT NULL CHECK(recurrence IN ('WEEKLY','MONTHLY','QUARTERLY','YEARLY')),
+            start_date TEXT NOT NULL,
+            end_date TEXT,
+            last_generated TEXT,
+            is_paused INTEGER NOT NULL DEFAULT 0,
+            entries_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS modules (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL UNIQUE,

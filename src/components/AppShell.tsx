@@ -10,6 +10,7 @@ export type Page =
   | 'balance-sheet'
   | 'opening-balances'
   | 'csv-import'
+  | 'recurring'
   | 'cash-flow'
   | 'fiscal-year-close'
   | 'settings'
@@ -35,6 +36,7 @@ const sections: SidebarSection[] = [
       { id: 'journal', label: 'Journal Entry' },
       { id: 'register', label: 'Register' },
       { id: 'csv-import', label: 'Import CSV' },
+      { id: 'recurring', label: 'Recurring' },
     ],
   },
   {
@@ -69,6 +71,7 @@ const shortLabels: Record<Page, string> = {
   'income-statement': 'IS',
   'balance-sheet': 'BS',
   'csv-import': 'CI',
+  'recurring': 'RC',
   'opening-balances': 'OB',
   'cash-flow': 'CF',
   'fiscal-year-close': 'FY',
