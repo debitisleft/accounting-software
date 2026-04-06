@@ -191,6 +191,8 @@ pub struct Account {
     pub parent_id: Option<String>,
     pub is_active: i64,
     pub is_system: i64,
+    pub is_cash_account: i64,
+    pub cash_flow_category: Option<String>,
     pub created_at: i64,
 }
 
@@ -289,7 +291,7 @@ pub async fn get_accounts(db: State<'_, DbState>) -> Result<Vec<Account>, String
     let guard = get_conn(&db)?;
     let conn = guard.as_ref().unwrap();
     let mut stmt = conn
-        .prepare("SELECT id, code, name, type, normal_balance, parent_id, is_active, created_at, COALESCE(is_system, 0) FROM accounts WHERE is_active = 1 ORDER BY code")
+        .prepare("SELECT id, code, name, type, normal_balance, parent_id, is_active, created_at, COALESCE(is_system, 0), COALESCE(is_cash_account, 0), cash_flow_category FROM accounts WHERE is_active = 1 ORDER BY code")
         .map_err(|e| e.to_string())?;
 
     let rows = stmt
@@ -303,6 +305,8 @@ pub async fn get_accounts(db: State<'_, DbState>) -> Result<Vec<Account>, String
                 parent_id: row.get(5)?,
                 is_active: row.get(6)?,
                 is_system: row.get(8)?,
+                is_cash_account: row.get(9)?,
+                cash_flow_category: row.get(10)?,
                 created_at: row.get(7)?,
             })
         })
@@ -1304,6 +1308,156 @@ pub async fn get_module(db: State<'_, DbState>, module_id: String) -> Result<Mod
             installed_at: row.get(6)?,
         }),
     ).map_err(|_| format!("Module not found: {}", module_id))
+}
+
+// ── Phase 24: Cash Flow Statement ────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct CashFlowItem {
+    pub account_id: String,
+    pub code: String,
+    pub name: String,
+    pub amount: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CashFlowStatement {
+    pub net_income: i64,
+    pub operating: Vec<CashFlowItem>,
+    pub investing: Vec<CashFlowItem>,
+    pub financing: Vec<CashFlowItem>,
+    pub total_operating: i64,
+    pub total_investing: i64,
+    pub total_financing: i64,
+    pub net_change_in_cash: i64,
+    pub beginning_cash: i64,
+    pub ending_cash: i64,
+}
+
+#[tauri::command]
+pub async fn get_cash_flow_statement(
+    db: State<'_, DbState>,
+    start_date: String,
+    end_date: String,
+) -> Result<CashFlowStatement, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Net income
+    let mut is_stmt = conn.prepare(
+        "SELECT a.type, COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0)
+         FROM accounts a
+         LEFT JOIN journal_entries je ON je.account_id = a.id
+         LEFT JOIN transactions t ON je.transaction_id = t.id AND t.date >= ?1 AND t.date <= ?2
+         WHERE a.is_active = 1 AND a.type IN ('REVENUE', 'EXPENSE')
+         GROUP BY a.type"
+    ).map_err(|e| e.to_string())?;
+
+    let mut total_revenue: i64 = 0;
+    let mut total_expenses: i64 = 0;
+    let rows = is_stmt.query_map(params![start_date, end_date], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+    }).map_err(|e| e.to_string())?;
+    for row in rows {
+        let (acct_type, td, tc) = row.map_err(|e| e.to_string())?;
+        match acct_type.as_str() {
+            "REVENUE" => total_revenue += tc - td,
+            "EXPENSE" => total_expenses += td - tc,
+            _ => {}
+        }
+    }
+    let net_income = total_revenue - total_expenses;
+
+    // Cash balances
+    let day_before = {
+        let d = chrono::NaiveDate::parse_from_str(&start_date, "%Y-%m-%d")
+            .map_err(|e| e.to_string())?;
+        (d - chrono::Duration::days(1)).format("%Y-%m-%d").to_string()
+    };
+
+    let beginning_cash: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(je.debit - je.credit), 0)
+         FROM journal_entries je
+         JOIN accounts a ON je.account_id = a.id AND COALESCE(a.is_cash_account, 0) = 1
+         JOIN transactions t ON je.transaction_id = t.id AND t.date <= ?1",
+        params![day_before],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    let ending_cash: i64 = conn.query_row(
+        "SELECT COALESCE(SUM(je.debit - je.credit), 0)
+         FROM journal_entries je
+         JOIN accounts a ON je.account_id = a.id AND COALESCE(a.is_cash_account, 0) = 1
+         JOIN transactions t ON je.transaction_id = t.id AND t.date <= ?1",
+        params![end_date],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    // Changes in non-cash BS accounts
+    let mut bs_stmt = conn.prepare(
+        "SELECT a.id, a.code, a.name, a.type, a.cash_flow_category,
+                COALESCE(SUM(CASE WHEN t.date <= ?1 THEN je.debit - je.credit ELSE 0 END), 0) as begin_bal,
+                COALESCE(SUM(CASE WHEN t.date <= ?2 THEN je.debit - je.credit ELSE 0 END), 0) as end_bal
+         FROM accounts a
+         LEFT JOIN journal_entries je ON je.account_id = a.id
+         LEFT JOIN transactions t ON je.transaction_id = t.id
+         WHERE a.is_active = 1 AND COALESCE(a.is_cash_account, 0) = 0
+           AND a.type IN ('ASSET', 'LIABILITY', 'EQUITY')
+         GROUP BY a.id"
+    ).map_err(|e| e.to_string())?;
+
+    let mut operating = Vec::new();
+    let mut investing = Vec::new();
+    let mut financing = Vec::new();
+
+    let bs_rows = bs_stmt.query_map(params![day_before, end_date], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?, row.get::<_, Option<String>>(4)?,
+            row.get::<_, i64>(5)?, row.get::<_, i64>(6)?))
+    }).map_err(|e| e.to_string())?;
+
+    for row in bs_rows {
+        let (id, code, name, acct_type, category, begin_raw, end_raw) = row.map_err(|e| e.to_string())?;
+        let begin_bal = if is_debit_normal(&acct_type) { begin_raw } else { -begin_raw };
+        let end_bal = if is_debit_normal(&acct_type) { end_raw } else { -end_raw };
+        let change = end_bal - begin_bal;
+        if change == 0 { continue; }
+
+        let cash_impact = if is_debit_normal(&acct_type) { -change } else { change };
+        let item = CashFlowItem { account_id: id, code: code.clone(), name, amount: cash_impact };
+
+        if let Some(ref cat) = category {
+            match cat.as_str() {
+                "INVESTING" => investing.push(item),
+                "FINANCING" => financing.push(item),
+                _ => operating.push(item),
+            }
+        } else {
+            let code_num: i32 = code.parse().unwrap_or(0);
+            match acct_type.as_str() {
+                "ASSET" => if code_num < 1500 { operating.push(item) } else { investing.push(item) },
+                "LIABILITY" => if code_num < 2500 { operating.push(item) } else { financing.push(item) },
+                _ => financing.push(item),
+            }
+        }
+    }
+
+    let total_operating = net_income + operating.iter().map(|i| i.amount).sum::<i64>();
+    let total_investing = investing.iter().map(|i| i.amount).sum::<i64>();
+    let total_financing = financing.iter().map(|i| i.amount).sum::<i64>();
+
+    Ok(CashFlowStatement {
+        net_income,
+        operating,
+        investing,
+        financing,
+        total_operating,
+        total_investing,
+        total_financing,
+        net_change_in_cash: total_operating + total_investing + total_financing,
+        beginning_cash,
+        ending_cash,
+    })
 }
 
 // ── Phase 22: Fiscal Year Close ──────────────────────────

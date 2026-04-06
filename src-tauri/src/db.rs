@@ -168,8 +168,17 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
     if !acct_cols.iter().any(|c| c == "is_system") {
         conn.execute_batch("ALTER TABLE accounts ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0;")?;
-        // Mark system accounts
         conn.execute_batch("UPDATE accounts SET is_system = 1 WHERE code IN ('3200', '3500');")?;
+    }
+
+    // Migration: add cash flow columns to accounts if not present
+    if !acct_cols.iter().any(|c| c == "cash_flow_category") {
+        conn.execute_batch("ALTER TABLE accounts ADD COLUMN cash_flow_category TEXT;")?;
+    }
+    if !acct_cols.iter().any(|c| c == "is_cash_account") {
+        conn.execute_batch("ALTER TABLE accounts ADD COLUMN is_cash_account INTEGER NOT NULL DEFAULT 0;")?;
+        // Seed: tag Cash, Checking, Savings as cash accounts
+        conn.execute_batch("UPDATE accounts SET is_cash_account = 1 WHERE code IN ('1000', '1010', '1020');")?;
     }
 
     Ok(())

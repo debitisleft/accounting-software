@@ -9,6 +9,7 @@ export type Page =
   | 'income-statement'
   | 'balance-sheet'
   | 'opening-balances'
+  | 'cash-flow'
   | 'fiscal-year-close'
   | 'settings'
 
@@ -48,6 +49,7 @@ const sections: SidebarSection[] = [
       { id: 'trial-balance', label: 'Trial Balance' },
       { id: 'income-statement', label: 'Income Statement' },
       { id: 'balance-sheet', label: 'Balance Sheet' },
+      { id: 'cash-flow', label: 'Cash Flow' },
     ],
   },
 ]
@@ -65,6 +67,7 @@ const shortLabels: Record<Page, string> = {
   'income-statement': 'IS',
   'balance-sheet': 'BS',
   'opening-balances': 'OB',
+  'cash-flow': 'CF',
   'fiscal-year-close': 'FY',
   settings: 'S',
 }

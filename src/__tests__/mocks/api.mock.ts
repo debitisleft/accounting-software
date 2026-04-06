@@ -169,6 +169,7 @@ export class MockApi {
     if (this.accounts.length > 0) return
     const now = Date.now()
     const systemCodes = new Set(['3200', '3500'])
+    const cashCodes = new Set(['1000', '1010', '1020'])
     for (const s of seedData) {
       this.accounts.push({
         id: this.genId(),
@@ -179,6 +180,8 @@ export class MockApi {
         parent_id: null,
         is_active: 1,
         is_system: systemCodes.has(s.code) ? 1 : 0,
+        is_cash_account: cashCodes.has(s.code) ? 1 : 0,
+        cash_flow_category: null,
         created_at: now,
       })
     }
@@ -1032,6 +1035,100 @@ export class MockApi {
         return { transaction_id: t.id, date: t.date, net_income: netIncome }
       })
       .sort((a, b) => b.date.localeCompare(a.date))
+  }
+
+  getCashFlowStatement(startDate: string, endDate: string): {
+    net_income: number
+    operating: { account_id: string; code: string; name: string; amount: number }[]
+    investing: { account_id: string; code: string; name: string; amount: number }[]
+    financing: { account_id: string; code: string; name: string; amount: number }[]
+    total_operating: number
+    total_investing: number
+    total_financing: number
+    net_change_in_cash: number
+    beginning_cash: number
+    ending_cash: number
+  } {
+    // Net income for the period
+    const is = this.getIncomeStatement(startDate, endDate)
+    const netIncome = is.net_income
+
+    // Calculate beginning and ending cash balances
+    const cashAccounts = this.accounts.filter((a) => a.is_cash_account === 1)
+    const dayBefore = (() => {
+      const d = new Date(startDate)
+      d.setDate(d.getDate() - 1)
+      return d.toISOString().split('T')[0]
+    })()
+
+    let beginningCash = 0
+    for (const ca of cashAccounts) {
+      beginningCash += this.getAccountBalance(ca.id, dayBefore)
+    }
+
+    let endingCash = 0
+    for (const ca of cashAccounts) {
+      endingCash += this.getAccountBalance(ca.id, endDate)
+    }
+
+    // Changes in non-cash balance sheet accounts = adjustments
+    const operating: { account_id: string; code: string; name: string; amount: number }[] = []
+    const investing: { account_id: string; code: string; name: string; amount: number }[] = []
+    const financing: { account_id: string; code: string; name: string; amount: number }[] = []
+
+    for (const acct of this.accounts.filter((a) => a.is_active === 1)) {
+      if (acct.is_cash_account === 1) continue
+      if (acct.type === 'REVENUE' || acct.type === 'EXPENSE') continue
+
+      const beginBal = this.getAccountBalance(acct.id, dayBefore)
+      const endBal = this.getAccountBalance(acct.id, endDate)
+      const change = endBal - beginBal
+      if (change === 0) continue
+
+      // For cash flow: increase in assets = cash outflow (negative)
+      // increase in liabilities/equity = cash inflow (positive)
+      const cashImpact = isDebitNormal(acct.type) ? -change : change
+
+      const category = acct.cash_flow_category
+      const item = { account_id: acct.id, code: acct.code, name: acct.name, amount: cashImpact }
+
+      if (category === 'INVESTING') {
+        investing.push(item)
+      } else if (category === 'FINANCING') {
+        financing.push(item)
+      } else {
+        // Default: current assets/liabilities → operating, long-term → investing/financing
+        // Simple heuristic: ASSET codes < 1500 are operating, >= 1500 investing
+        // LIABILITY codes < 2500 operating, >= 2500 financing
+        // EQUITY → financing
+        if (acct.type === 'ASSET') {
+          if (parseInt(acct.code) < 1500) operating.push(item)
+          else investing.push(item)
+        } else if (acct.type === 'LIABILITY') {
+          if (parseInt(acct.code) < 2500) operating.push(item)
+          else financing.push(item)
+        } else {
+          financing.push(item)
+        }
+      }
+    }
+
+    const totalOperating = netIncome + operating.reduce((s, i) => s + i.amount, 0)
+    const totalInvesting = investing.reduce((s, i) => s + i.amount, 0)
+    const totalFinancing = financing.reduce((s, i) => s + i.amount, 0)
+
+    return {
+      net_income: netIncome,
+      operating,
+      investing,
+      financing,
+      total_operating: totalOperating,
+      total_investing: totalInvesting,
+      total_financing: totalFinancing,
+      net_change_in_cash: totalOperating + totalInvesting + totalFinancing,
+      beginning_cash: beginningCash,
+      ending_cash: endingCash,
+    }
   }
 
   listModules(): typeof this.modules {

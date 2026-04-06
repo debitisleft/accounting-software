@@ -24,6 +24,8 @@ export interface Account {
   parent_id: string | null
   is_active: number
   is_system: number
+  is_cash_account: number
+  cash_flow_category: string | null
   created_at: number
 }
 
@@ -225,6 +227,20 @@ export const api = {
 
   enterOpeningBalances: (balances: { account_id: string; balance: number }[], effectiveDate: string) =>
     invoke<string>('enter_opening_balances', { balances, effectiveDate }),
+
+  getCashFlowStatement: (startDate: string, endDate: string) =>
+    invoke<{
+      net_income: number
+      operating: { account_id: string; code: string; name: string; amount: number }[]
+      investing: { account_id: string; code: string; name: string; amount: number }[]
+      financing: { account_id: string; code: string; name: string; amount: number }[]
+      total_operating: number
+      total_investing: number
+      total_financing: number
+      net_change_in_cash: number
+      beginning_cash: number
+      ending_cash: number
+    }>('get_cash_flow_statement', { startDate, endDate }),
 
   listModules: () =>
     invoke<{ id: string; name: string; version: string; description: string | null; table_prefix: string; enabled: number; installed_at: number }[]>('list_modules'),

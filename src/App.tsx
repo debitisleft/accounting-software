@@ -12,6 +12,7 @@ import { SettingsPage } from './components/SettingsPage'
 import { AccountLedger } from './components/AccountLedger'
 import { OpeningBalancesWizard } from './components/OpeningBalancesWizard'
 import { FiscalYearClose } from './components/FiscalYearClose'
+import { CashFlowStatementReport } from './components/CashFlowStatement'
 import { api } from './lib/api'
 
 function App() {
@@ -50,6 +51,7 @@ function App() {
       {page === 'trial-balance' && <TrialBalanceReport version={version} onDrillDown={openLedger} />}
       {page === 'income-statement' && <IncomeStatementReport version={version} />}
       {page === 'balance-sheet' && <BalanceSheetReport version={version} />}
+      {page === 'cash-flow' && <CashFlowStatementReport version={version} />}
       {page === 'opening-balances' && <OpeningBalancesWizard version={version} onSaved={refresh} />}
       {page === 'fiscal-year-close' && <FiscalYearClose version={version} />}
       {page === 'settings' && <SettingsPage version={version} />}

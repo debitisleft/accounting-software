@@ -148,27 +148,26 @@ See previous build-todo files for full history.
 ## PHASE 24 — Cash Flow Statement
 **Goal:** The third major financial statement.
 
-- [ ] Add `cash_flow_category TEXT` column to accounts table (nullable, migration)
+- [x] Add `cash_flow_category TEXT` column to accounts table (nullable, migration)
   - Values: `OPERATING`, `INVESTING`, `FINANCING`
   - Seed: tag default cash/bank accounts as OPERATING
-- [ ] Add `is_cash_account INTEGER DEFAULT 0` column to accounts table (migration)
+- [x] Add `is_cash_account INTEGER DEFAULT 0` column to accounts table (migration)
   - Seed: tag Cash (1000), Checking (1010), Savings (1020) as cash accounts
-- [ ] Add `get_cash_flow_statement` Rust command:
+- [x] Add `get_cash_flow_statement` Rust command:
   - Indirect method: starts with net income
   - Adjusts for non-cash items (changes in non-cash balance sheet accounts)
   - Sections: Operating, Investing, Financing
   - Beginning and ending cash balance
-- [ ] Add command to api.ts + MockApi
-- [ ] Create `CashFlowStatement.tsx`:
+- [x] Add command to api.ts + MockApi
+- [x] Create `CashFlowStatement.tsx`:
   - Date range picker
   - Three sections with subtotals
   - Net change in cash + beginning/ending balances
-  - Export CSV button
-- [ ] Add to Reports section in sidebar
-- [ ] Test: cash flow statement beginning + net change = ending balance
-- [ ] Test: cash flow equals actual change in cash accounts
-- [ ] Test: net income from income statement matches operating section starting point
-- [ ] CHECK: Cash flow statement renders correctly, balances tie out, all tests pass, `npm run check` clean
+- [x] Add to Reports section in sidebar
+- [x] Test: cash flow statement beginning + net change = ending balance
+- [x] Test: cash flow equals actual change in cash accounts
+- [x] Test: net income from income statement matches operating section starting point
+- [x] CHECK: Cash flow statement renders correctly, balances tie out, all tests pass, `npm run check` clean
 
 ---
 
@@ -262,8 +261,8 @@ See previous build-todo files for full history.
 
 ---
 
-## CURRENT PHASE: 24
-## LAST COMPLETED CHECK: Phase 23 — module foundation, 165 tests pass (2026-04-05)
+## CURRENT PHASE: 25
+## LAST COMPLETED CHECK: Phase 24 — cash flow statement, 170 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)

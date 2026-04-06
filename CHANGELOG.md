@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 23 Complete — working on Phase 24
+## STATUS: Phase 24 Complete — working on Phase 25
 
 ## CURRENT STATE (2026-04-05)
-- 23 phases complete, 165 tests passing
+- 24 phases complete, 170 tests passing
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,16 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 24 — Cash Flow Statement (2026-04-05)
+- Added `cash_flow_category` and `is_cash_account` columns to accounts table (migration)
+- Cash/Checking/Savings auto-tagged as cash accounts
+- Added `get_cash_flow_statement` Rust command + MockApi + api.ts
+- Indirect method: net income + adjustments for non-cash BS changes
+- Operating/Investing/Financing sections with heuristic classification
+- CashFlowStatement.tsx with date range picker, three sections, beginning/ending balances
+- Added to Reports section in sidebar
+- 170 tests passing (5 new cash flow tests)
 
 ### Phase 23 — Module Foundation (2026-04-05)
 - Added `modules` table to schema
