@@ -1356,13 +1356,13 @@ describe('Category I: Seed Data Integrity', () => {
     mock.seedAccounts(defaultSeedAccounts)
   })
 
-  it('I1: all 26 seed accounts have unique codes', () => {
+  it('I1: all 27 seed accounts have unique codes', () => {
     const accounts = mock.getAccounts()
-    expect(accounts.length).toBe(26)
+    expect(accounts.length).toBe(27)
 
     const codes = accounts.map((a) => a.code)
     const uniqueCodes = new Set(codes)
-    expect(uniqueCodes.size).toBe(26)
+    expect(uniqueCodes.size).toBe(27)
   })
 
   it('I2: all seed accounts have correct normal_balance for their type', () => {

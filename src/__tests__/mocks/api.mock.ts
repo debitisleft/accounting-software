@@ -166,6 +166,7 @@ export class MockApi {
     this.fileOpen = true // seedAccounts implies a file is open
     if (this.accounts.length > 0) return
     const now = Date.now()
+    const systemCodes = new Set(['3200', '3500'])
     for (const s of seedData) {
       this.accounts.push({
         id: this.genId(),
@@ -175,6 +176,7 @@ export class MockApi {
         normal_balance: normalBalanceFor(s.type),
         parent_id: null,
         is_active: 1,
+        is_system: systemCodes.has(s.code) ? 1 : 0,
         created_at: now,
       })
     }
@@ -860,6 +862,7 @@ export class MockApi {
   deactivateAccount(accountId: string): void {
     const acct = this.accounts.find((a) => a.id === accountId)
     if (!acct) throw new Error(`Account not found: ${accountId}`)
+    if (acct.is_system === 1) throw new Error('Cannot deactivate a system account')
 
     const balance = this.getAccountBalance(accountId)
     if (balance !== 0) {
@@ -872,6 +875,73 @@ export class MockApi {
     const acct = this.accounts.find((a) => a.id === accountId)
     if (!acct) throw new Error(`Account not found: ${accountId}`)
     acct.is_active = 1
+  }
+
+  enterOpeningBalances(balances: { account_id: string; balance: number }[], effectiveDate: string): string {
+    // Find Opening Balance Equity account
+    const obeAcct = this.accounts.find((a) => a.code === '3500')
+    if (!obeAcct) throw new Error('Opening Balance Equity account not found')
+
+    const entries: { account_id: string; debit: number; credit: number; memo?: string }[] = []
+
+    for (const { account_id, balance } of balances) {
+      if (balance === 0) continue
+      const acct = this.accounts.find((a) => a.id === account_id)
+      if (!acct) throw new Error(`Account not found: ${account_id}`)
+
+      if (isDebitNormal(acct.type)) {
+        if (balance > 0) {
+          entries.push({ account_id, debit: balance, credit: 0 })
+        } else {
+          entries.push({ account_id, debit: 0, credit: -balance })
+        }
+      } else {
+        if (balance > 0) {
+          entries.push({ account_id, debit: 0, credit: balance })
+        } else {
+          entries.push({ account_id, debit: -balance, credit: 0 })
+        }
+      }
+    }
+
+    if (entries.length === 0) throw new Error('No non-zero balances provided')
+
+    // Calculate offset for Opening Balance Equity
+    const totalDebit = entries.reduce((s, e) => s + e.debit, 0)
+    const totalCredit = entries.reduce((s, e) => s + e.credit, 0)
+    const diff = totalDebit - totalCredit
+    if (diff > 0) {
+      entries.push({ account_id: obeAcct.id, debit: 0, credit: diff })
+    } else if (diff < 0) {
+      entries.push({ account_id: obeAcct.id, debit: -diff, credit: 0 })
+    }
+
+    // Create transaction directly (bypass system type restriction)
+    const txId = this.genId()
+    this.transactions.push({
+      id: txId,
+      date: effectiveDate,
+      description: 'Opening Balances',
+      reference: 'OJ-0001',
+      journal_type: 'OPENING',
+      is_locked: 0,
+      is_void: 0,
+      void_of: null,
+      created_at: Date.now(),
+    })
+
+    for (const entry of entries) {
+      this.entries.push({
+        id: this.genId(),
+        transaction_id: txId,
+        account_id: entry.account_id,
+        debit: entry.debit,
+        credit: entry.credit,
+        memo: entry.memo ?? null,
+      })
+    }
+
+    return txId
   }
 
   getDashboardSummary(): DashboardSummary {
@@ -914,6 +984,7 @@ export const defaultSeedAccounts = [
   { code: '3000', name: "Owner's Equity", type: 'EQUITY' },
   { code: '3100', name: "Owner's Draws", type: 'EQUITY' },
   { code: '3200', name: 'Retained Earnings', type: 'EQUITY' },
+  { code: '3500', name: 'Opening Balance Equity', type: 'EQUITY' },
   { code: '4000', name: 'Sales Revenue', type: 'REVENUE' },
   { code: '4100', name: 'Service Revenue', type: 'REVENUE' },
   { code: '4200', name: 'Interest Income', type: 'REVENUE' },

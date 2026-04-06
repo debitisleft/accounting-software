@@ -75,7 +75,7 @@ describe('Phase 14 — CSV Export', () => {
     const csv = mock.exportCsv('ChartOfAccounts')
     const lines = csv.trim().split('\n')
     expect(lines[0]).toBe('Account Number,Account Name,Type,Active,Balance')
-    expect(lines.length).toBe(27) // header + 26 accounts
+    expect(lines.length).toBe(28) // header + 27 accounts
   })
 
   it('income statement CSV shows net income', () => {

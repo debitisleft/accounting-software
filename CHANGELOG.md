@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 20 Complete — working on Phase 21
+## STATUS: Phase 21 Complete — working on Phase 22
 
 ## CURRENT STATE (2026-04-05)
-- 20 phases complete, 146 tests passing
+- 21 phases complete, 153 tests passing
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,16 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 21 — Retained Earnings & Opening Balances (2026-04-05)
+- Added "Opening Balance Equity" (code 3500) to seed accounts
+- Added `is_system` column to accounts table — Retained Earnings (3200) and OBE (3500) are system accounts
+- System accounts cannot be deactivated
+- Added `enter_opening_balances` Rust command + MockApi + api.ts
+- Created OpeningBalancesWizard.tsx — accessible from sidebar under Accounts
+- Opening balances create OPENING journal type transaction with OBE offset
+- Balance sheet correctly shows Opening Balance Equity in equity section
+- 153 tests passing (7 new opening balance tests)
 
 ### Phase 20 — Journal Types & Transaction Classification (2026-04-05)
 - Added `journal_type` column to transactions table (migration, defaults to GENERAL)

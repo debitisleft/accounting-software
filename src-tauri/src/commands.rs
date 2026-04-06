@@ -190,6 +190,7 @@ pub struct Account {
     pub normal_balance: String,
     pub parent_id: Option<String>,
     pub is_active: i64,
+    pub is_system: i64,
     pub created_at: i64,
 }
 
@@ -288,7 +289,7 @@ pub async fn get_accounts(db: State<'_, DbState>) -> Result<Vec<Account>, String
     let guard = get_conn(&db)?;
     let conn = guard.as_ref().unwrap();
     let mut stmt = conn
-        .prepare("SELECT id, code, name, type, normal_balance, parent_id, is_active, created_at FROM accounts WHERE is_active = 1 ORDER BY code")
+        .prepare("SELECT id, code, name, type, normal_balance, parent_id, is_active, created_at, COALESCE(is_system, 0) FROM accounts WHERE is_active = 1 ORDER BY code")
         .map_err(|e| e.to_string())?;
 
     let rows = stmt
@@ -301,6 +302,7 @@ pub async fn get_accounts(db: State<'_, DbState>) -> Result<Vec<Account>, String
                 normal_balance: row.get(4)?,
                 parent_id: row.get(5)?,
                 is_active: row.get(6)?,
+                is_system: row.get(8)?,
                 created_at: row.get(7)?,
             })
         })
@@ -1098,11 +1100,15 @@ pub async fn deactivate_account(
     let guard = get_conn(&db)?;
     let conn = guard.as_ref().unwrap();
 
-    let acct_type: String = conn.query_row(
-        "SELECT type FROM accounts WHERE id = ?1",
+    let (acct_type, is_system): (String, i64) = conn.query_row(
+        "SELECT type, COALESCE(is_system, 0) FROM accounts WHERE id = ?1",
         params![account_id],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get(1)?)),
     ).map_err(|_| format!("Account not found: {}", account_id))?;
+
+    if is_system != 0 {
+        return Err("Cannot deactivate a system account".to_string());
+    }
 
     // Check balance is zero
     let (total_debit, total_credit): (i64, i64) = conn.query_row(
@@ -1149,6 +1155,94 @@ pub async fn reactivate_account(
     ).map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+// ── Phase 21: Opening Balances ───────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct OpeningBalanceInput {
+    pub account_id: String,
+    pub balance: i64,
+}
+
+#[tauri::command]
+pub async fn enter_opening_balances(
+    db: State<'_, DbState>,
+    balances: Vec<OpeningBalanceInput>,
+    effective_date: String,
+) -> Result<String, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Find Opening Balance Equity account
+    let obe_id: String = conn.query_row(
+        "SELECT id FROM accounts WHERE code = '3500'",
+        [],
+        |row| row.get(0),
+    ).map_err(|_| "Opening Balance Equity account not found".to_string())?;
+
+    let mut entries: Vec<(String, i64, i64)> = Vec::new(); // (account_id, debit, credit)
+
+    for ob in &balances {
+        if ob.balance == 0 { continue; }
+        let acct_type: String = conn.query_row(
+            "SELECT type FROM accounts WHERE id = ?1",
+            params![ob.account_id],
+            |row| row.get(0),
+        ).map_err(|_| format!("Account not found: {}", ob.account_id))?;
+
+        if is_debit_normal(&acct_type) {
+            if ob.balance > 0 {
+                entries.push((ob.account_id.clone(), ob.balance, 0));
+            } else {
+                entries.push((ob.account_id.clone(), 0, -ob.balance));
+            }
+        } else {
+            if ob.balance > 0 {
+                entries.push((ob.account_id.clone(), 0, ob.balance));
+            } else {
+                entries.push((ob.account_id.clone(), -ob.balance, 0));
+            }
+        }
+    }
+
+    if entries.is_empty() {
+        return Err("No non-zero balances provided".to_string());
+    }
+
+    let total_debit: i64 = entries.iter().map(|e| e.1).sum();
+    let total_credit: i64 = entries.iter().map(|e| e.2).sum();
+    let diff = total_debit - total_credit;
+    if diff > 0 {
+        entries.push((obe_id, 0, diff));
+    } else if diff < 0 {
+        entries.push((obe_id, -diff, 0));
+    }
+
+    let tx_id = Uuid::new_v4().to_string();
+    let now = Utc::now().timestamp();
+
+    conn.execute("BEGIN", []).map_err(|e| e.to_string())?;
+    let result = (|| -> Result<(), String> {
+        conn.execute(
+            "INSERT INTO transactions (id, date, description, reference, journal_type, is_locked, created_at) VALUES (?1, ?2, 'Opening Balances', 'OJ-0001', 'OPENING', 0, ?3)",
+            params![tx_id, effective_date, now],
+        ).map_err(|e| e.to_string())?;
+
+        for (account_id, debit, credit) in &entries {
+            let eid = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO journal_entries (id, transaction_id, account_id, debit, credit) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![eid, tx_id, account_id, debit, credit],
+            ).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => { conn.execute("COMMIT", []).map_err(|e| e.to_string())?; Ok(tx_id) }
+        Err(e) => { let _ = conn.execute("ROLLBACK", []); Err(e) }
+    }
 }
 
 // ── Phase 11: Transaction Register ───────────────────────

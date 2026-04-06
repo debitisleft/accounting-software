@@ -10,6 +10,7 @@ import { BalanceSheetReport } from './components/BalanceSheet'
 import { TransactionRegister } from './components/TransactionRegister'
 import { SettingsPage } from './components/SettingsPage'
 import { AccountLedger } from './components/AccountLedger'
+import { OpeningBalancesWizard } from './components/OpeningBalancesWizard'
 import { api } from './lib/api'
 
 function App() {
@@ -48,6 +49,7 @@ function App() {
       {page === 'trial-balance' && <TrialBalanceReport version={version} onDrillDown={openLedger} />}
       {page === 'income-statement' && <IncomeStatementReport version={version} />}
       {page === 'balance-sheet' && <BalanceSheetReport version={version} />}
+      {page === 'opening-balances' && <OpeningBalancesWizard version={version} onSaved={refresh} />}
       {page === 'settings' && <SettingsPage version={version} />}
     </AppShell>
   )

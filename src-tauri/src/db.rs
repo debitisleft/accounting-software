@@ -151,6 +151,17 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         conn.execute_batch("ALTER TABLE transactions ADD COLUMN journal_type TEXT NOT NULL DEFAULT 'GENERAL';")?;
     }
 
+    // Migration: add is_system column to accounts if not present
+    let acct_cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(accounts)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>>>()?;
+    if !acct_cols.iter().any(|c| c == "is_system") {
+        conn.execute_batch("ALTER TABLE accounts ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0;")?;
+        // Mark system accounts
+        conn.execute_batch("UPDATE accounts SET is_system = 1 WHERE code IN ('3200', '3500');")?;
+    }
+
     Ok(())
 }
 
@@ -201,6 +212,7 @@ fn seed_accounts(conn: &Connection) -> Result<()> {
         ("3000", "Owner's Equity", "EQUITY"),
         ("3100", "Owner's Draws", "EQUITY"),
         ("3200", "Retained Earnings", "EQUITY"),
+        ("3500", "Opening Balance Equity", "EQUITY"),
         ("4000", "Sales Revenue", "REVENUE"),
         ("4100", "Service Revenue", "REVENUE"),
         ("4200", "Interest Income", "REVENUE"),
@@ -216,9 +228,10 @@ fn seed_accounts(conn: &Connection) -> Result<()> {
     for (code, name, acct_type) in &accounts {
         let id = Uuid::new_v4().to_string();
         let nb = normal_balance_for(acct_type);
+        let is_system: i64 = if *code == "3200" || *code == "3500" { 1 } else { 0 };
         conn.execute(
-            "INSERT INTO accounts (id, code, name, type, normal_balance, is_active, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)",
-            params![id, code, name, acct_type, nb, now],
+            "INSERT INTO accounts (id, code, name, type, normal_balance, is_active, is_system, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7)",
+            params![id, code, name, acct_type, nb, is_system, now],
         )?;
     }
 

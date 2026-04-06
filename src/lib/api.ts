@@ -23,6 +23,7 @@ export interface Account {
   normal_balance: string
   parent_id: string | null
   is_active: number
+  is_system: number
   created_at: number
 }
 
@@ -221,6 +222,9 @@ export const api = {
   // Accounting
   getAccounts: () =>
     invoke<Account[]>('get_accounts'),
+
+  enterOpeningBalances: (balances: { account_id: string; balance: number }[], effectiveDate: string) =>
+    invoke<string>('enter_opening_balances', { balances, effectiveDate }),
 
   createTransaction: (data: {
     date: string

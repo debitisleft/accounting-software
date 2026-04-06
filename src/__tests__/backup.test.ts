@@ -24,7 +24,7 @@ describe('Phase 13 — Backup & Restore', () => {
     ]})
 
     const result = mock.importDatabase('/tmp/valid.db')
-    expect(result.account_count).toBe(26)
+    expect(result.account_count).toBe(27)
     expect(result.transaction_count).toBe(1)
   })
 

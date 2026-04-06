@@ -8,6 +8,7 @@ export type Page =
   | 'trial-balance'
   | 'income-statement'
   | 'balance-sheet'
+  | 'opening-balances'
   | 'settings'
 
 interface SidebarItem {
@@ -34,7 +35,10 @@ const sections: SidebarSection[] = [
   },
   {
     title: 'Accounts',
-    items: [{ id: 'accounts', label: 'Chart of Accounts' }],
+    items: [
+      { id: 'accounts', label: 'Chart of Accounts' },
+      { id: 'opening-balances', label: 'Opening Balances' },
+    ],
   },
   {
     title: 'Reports',
@@ -58,6 +62,7 @@ const shortLabels: Record<Page, string> = {
   'trial-balance': 'TB',
   'income-statement': 'IS',
   'balance-sheet': 'BS',
+  'opening-balances': 'OB',
   settings: 'S',
 }
 
