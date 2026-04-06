@@ -1151,6 +1151,84 @@ export class MockApi {
     }
   }
 
+  importCsvRows(rows: { date: string; description: string; account_code: string; debit: number; credit: number }[]): {
+    imported: number; skipped: number; duplicates: number; errors: { row: number; message: string }[]
+  } {
+    let imported = 0
+    let skipped = 0
+    let duplicates = 0
+    const errors: { row: number; message: string }[] = []
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+
+      // Validate date
+      if (!row.date || !/^\d{4}-\d{2}-\d{2}$/.test(row.date)) {
+        errors.push({ row: i, message: `Invalid date: "${row.date}"` })
+        skipped++
+        continue
+      }
+
+      // Validate account
+      const acct = this.accounts.find((a) => a.code === row.account_code)
+      if (!acct) {
+        errors.push({ row: i, message: `Unknown account code: "${row.account_code}"` })
+        skipped++
+        continue
+      }
+
+      // Must have debit or credit but not both
+      if (row.debit === 0 && row.credit === 0) {
+        errors.push({ row: i, message: 'Row has no amount' })
+        skipped++
+        continue
+      }
+
+      // Duplicate detection: same date + amount + description
+      const isDuplicate = this.transactions.some((t) => {
+        if (t.date !== row.date || t.description !== row.description) return false
+        const txEntries = this.entries.filter((e) => e.transaction_id === t.id)
+        return txEntries.some((e) =>
+          e.account_id === acct.id &&
+          e.debit === row.debit &&
+          e.credit === row.credit
+        )
+      })
+
+      if (isDuplicate) {
+        duplicates++
+        skipped++
+        continue
+      }
+
+      // Find a cash account for the offset side
+      const cashAcct = this.accounts.find((a) => a.code === '1000')
+      if (!cashAcct) {
+        errors.push({ row: i, message: 'No cash account found for offset' })
+        skipped++
+        continue
+      }
+
+      // Create a balanced transaction
+      try {
+        this.createTransaction({
+          date: row.date,
+          description: row.description || `Import row ${i + 1}`,
+          entries: [
+            { account_id: acct.id, debit: row.debit, credit: row.credit },
+            { account_id: cashAcct.id, debit: row.credit, credit: row.debit },
+          ],
+        })
+        imported++
+      } catch (e) {
+        errors.push({ row: i, message: e instanceof Error ? e.message : String(e) })
+        skipped++
+      }
+    }
+
+    return { imported, skipped, duplicates, errors }
+  }
+
   listModules(): typeof this.modules {
     return this.modules.slice().sort((a, b) => a.name.localeCompare(b.name))
   }

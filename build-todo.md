@@ -200,16 +200,16 @@ See previous build-todo files for full history.
 - [x] CHECK: Can enter edit mode, modify multiple transactions inline, save all, audit log reflects changes, `npm run check` clean
 
 ## PHASE 27 — CSV Import with Column Mapping
-- [ ] Upload CSV → preview first 10 rows in table
-- [ ] Column mapping UI: drag/assign CSV columns to fields (date, memo, account, debit, credit)
-- [ ] Validation pass: show errors per row (missing fields, unparseable dates, unknown accounts)
-- [ ] "Import" creates transactions for valid rows, skips invalid
-- [ ] Duplicate detection: date + amount + memo match → flag as potential duplicate
-- [ ] Import summary: X imported, Y skipped, Z duplicates
-- [ ] Test: valid CSV imports correctly
-- [ ] Test: invalid rows rejected with error messages
-- [ ] Test: duplicate detection flags matches
-- [ ] CHECK: Can import a bank CSV, map columns, review errors, import clean rows, `npm run check` clean
+- [x] Upload CSV → preview first 10 rows in table
+- [x] Column mapping UI: drag/assign CSV columns to fields (date, memo, account, debit, credit)
+- [x] Validation pass: show errors per row (missing fields, unparseable dates, unknown accounts)
+- [x] "Import" creates transactions for valid rows, skips invalid
+- [x] Duplicate detection: date + amount + memo match → flag as potential duplicate
+- [x] Import summary: X imported, Y skipped, Z duplicates
+- [x] Test: valid CSV imports correctly
+- [x] Test: invalid rows rejected with error messages
+- [x] Test: duplicate detection flags matches
+- [x] CHECK: Can import a bank CSV, map columns, review errors, import clean rows, `npm run check` clean
 
 ## PHASE 28 — Recurring Transactions
 - [ ] Create `recurring_templates` table (inside each .sqlite file): template of line items + recurrence rule
@@ -261,8 +261,8 @@ See previous build-todo files for full history.
 
 ---
 
-## CURRENT PHASE: 27
-## LAST COMPLETED CHECK: Phase 26 — Excel-style transaction register UX, 174 tests pass (2026-04-05)
+## CURRENT PHASE: 28
+## LAST COMPLETED CHECK: Phase 27 — CSV import with column mapping, 177 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)

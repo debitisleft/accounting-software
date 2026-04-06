@@ -9,6 +9,7 @@ export type Page =
   | 'income-statement'
   | 'balance-sheet'
   | 'opening-balances'
+  | 'csv-import'
   | 'cash-flow'
   | 'fiscal-year-close'
   | 'settings'
@@ -33,6 +34,7 @@ const sections: SidebarSection[] = [
     items: [
       { id: 'journal', label: 'Journal Entry' },
       { id: 'register', label: 'Register' },
+      { id: 'csv-import', label: 'Import CSV' },
     ],
   },
   {
@@ -66,6 +68,7 @@ const shortLabels: Record<Page, string> = {
   'trial-balance': 'TB',
   'income-statement': 'IS',
   'balance-sheet': 'BS',
+  'csv-import': 'CI',
   'opening-balances': 'OB',
   'cash-flow': 'CF',
   'fiscal-year-close': 'FY',

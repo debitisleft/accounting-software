@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 26 Complete — working on Phase 27
+## STATUS: Phase 27 Complete — working on Phase 28
 
 ## CURRENT STATE (2026-04-05)
-- 26 phases complete, 174 tests passing
+- 27 phases complete, 177 tests passing
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,15 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 27 — CSV Import with Column Mapping (2026-04-05)
+- CsvImport.tsx: file upload, CSV parsing, column preview
+- Auto-detect column mapping from headers (date, desc, account, debit, credit)
+- Validation per row: invalid dates, unknown accounts, zero amounts
+- Duplicate detection: date + amount + description match
+- Import summary: imported/skipped/duplicates counts with error details
+- importCsvRows method in MockApi
+- 177 tests passing (3 new CSV import tests)
 
 ### Phase 26 — Excel-Style Transaction Register UX (2026-04-05)
 - Complete rewrite of TransactionRegister with inline edit mode
