@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 29 Complete — working on Phase 30
+## STATUS: Phase 30 Complete — working on Phase 31
 
 ## CURRENT STATE (2026-04-05)
-- 29 phases complete, 185 tests passing
+- 30 phases complete, 189 tests passing
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,15 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 30 — Bank Feed Pipeline (2026-04-05)
+- Added `pending_bank_transactions` table for imported bank data
+- import/list/approve/dismiss commands in Rust + MockApi + api.ts
+- Deduplication by bank_ref, auto-match by payee history
+- Approval creates balanced journal entry (debit/credit to cash + categorized account)
+- Dismissal marks as ignored without creating transaction
+- BankFeed.tsx: review, categorize, approve/dismiss pending items
+- 189 tests passing (4 new bank feed tests)
 
 ### Phase 29 — Accrual vs Cash Basis Reporting (2026-04-05)
 - Added `basis` parameter to getIncomeStatement (ACCRUAL default, CASH optional)

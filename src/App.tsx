@@ -15,6 +15,7 @@ import { FiscalYearClose } from './components/FiscalYearClose'
 import { CashFlowStatementReport } from './components/CashFlowStatement'
 import { CsvImport } from './components/CsvImport'
 import { RecurringTransactions } from './components/RecurringTransactions'
+import { BankFeed } from './components/BankFeed'
 import { api } from './lib/api'
 
 function App() {
@@ -55,6 +56,7 @@ function App() {
       {page === 'balance-sheet' && <BalanceSheetReport version={version} />}
       {page === 'csv-import' && <CsvImport version={version} onImported={refresh} />}
       {page === 'recurring' && <RecurringTransactions version={version} onGenerated={refresh} />}
+      {page === 'bank-feed' && <BankFeed version={version} onApproved={refresh} />}
       {page === 'cash-flow' && <CashFlowStatementReport version={version} />}
       {page === 'opening-balances' && <OpeningBalancesWizard version={version} onSaved={refresh} />}
       {page === 'fiscal-year-close' && <FiscalYearClose version={version} />}

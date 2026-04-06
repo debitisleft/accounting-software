@@ -88,6 +88,11 @@ export class MockApi {
     date_format: 'YYYY-MM-DD',
   }
   modules: { id: string; name: string; version: string; description: string | null; table_prefix: string; enabled: number; installed_at: number }[] = []
+  pendingBankTxs: {
+    id: string; date: string; description: string; amount: number; payee: string | null;
+    bank_ref: string | null; status: string; suggested_account_id: string | null;
+    created_transaction_id: string | null; imported_at: number
+  }[] = []
   recurringTemplates: {
     id: string; description: string; recurrence: string; start_date: string; end_date: string | null;
     last_generated: string | null; is_paused: number; entries: { account_id: string; debit: number; credit: number; memo?: string }[];
@@ -161,6 +166,7 @@ export class MockApi {
     this.lockPeriods = []
     this.globalLocks = []
     this.modules = []
+    this.pendingBankTxs = []
     this.recurringTemplates = []
     this.settings = {
       company_name: 'My Company',
@@ -1238,6 +1244,73 @@ export class MockApi {
     }
 
     return { imported, skipped, duplicates, errors }
+  }
+
+  // ── Bank Feed ──────────────────────────────────────────
+  importBankTransactions(items: { date: string; description: string; amount: number; payee?: string; bank_ref?: string }[]): number {
+    let imported = 0
+    for (const item of items) {
+      // Deduplicate by bank_ref
+      if (item.bank_ref && this.pendingBankTxs.some((p) => p.bank_ref === item.bank_ref)) continue
+
+      // Auto-match: find previous categorization for same payee
+      let suggested: string | null = null
+      if (item.payee) {
+        const prev = this.transactions.find((t) => t.description.includes(item.payee!))
+        if (prev) {
+          const prevEntry = this.entries.find((e) => e.transaction_id === prev.id && e.account_id !== this.accounts.find((a) => a.is_cash_account === 1)?.id)
+          if (prevEntry) suggested = prevEntry.account_id
+        }
+      }
+
+      this.pendingBankTxs.push({
+        id: this.genId(), date: item.date, description: item.description,
+        amount: item.amount, payee: item.payee ?? null, bank_ref: item.bank_ref ?? null,
+        status: 'PENDING', suggested_account_id: suggested,
+        created_transaction_id: null, imported_at: Date.now(),
+      })
+      imported++
+    }
+    return imported
+  }
+
+  listPendingBankTransactions(): typeof this.pendingBankTxs {
+    return this.pendingBankTxs.filter((p) => p.status === 'PENDING')
+  }
+
+  approveBankTransaction(pendingId: string, accountId: string): string {
+    const pending = this.pendingBankTxs.find((p) => p.id === pendingId)
+    if (!pending) throw new Error(`Pending transaction not found: ${pendingId}`)
+    if (pending.status !== 'PENDING') throw new Error('Transaction already processed')
+
+    const cashAcct = this.accounts.find((a) => a.is_cash_account === 1)
+    if (!cashAcct) throw new Error('No cash account found')
+
+    const entries = pending.amount > 0
+      ? [ // deposit
+          { account_id: cashAcct.id, debit: pending.amount, credit: 0 },
+          { account_id: accountId, debit: 0, credit: pending.amount },
+        ]
+      : [ // withdrawal
+          { account_id: accountId, debit: -pending.amount, credit: 0 },
+          { account_id: cashAcct.id, debit: 0, credit: -pending.amount },
+        ]
+
+    const txId = this.createTransaction({
+      date: pending.date,
+      description: pending.description,
+      entries,
+    })
+
+    pending.status = 'APPROVED'
+    pending.created_transaction_id = txId
+    return txId
+  }
+
+  dismissBankTransaction(pendingId: string): void {
+    const pending = this.pendingBankTxs.find((p) => p.id === pendingId)
+    if (!pending) throw new Error(`Pending transaction not found: ${pendingId}`)
+    pending.status = 'DISMISSED'
   }
 
   createRecurring(data: {

@@ -235,18 +235,18 @@ See previous build-todo files for full history.
 - [x] CHECK: Both bases render correctly, toggle works, all tests pass, `npm run check` clean
 
 ## PHASE 30 — Bank Feed Pipeline (Plaid Integration)
-- [ ] Add Plaid API credentials to app-level config (not per-file)
-- [ ] Create `pending_bank_transactions` table (inside each .sqlite file)
-- [ ] Plaid API → normalize → deduplicate → insert into pending_bank_transactions
-- [ ] UI: pending transactions list with "Approve" flow
-- [ ] Approve: user selects account → createTransaction() fires → removes from pending
-- [ ] Dismiss: marks pending transaction as ignored
-- [ ] Auto-match: suggest account based on previous categorizations of same payee
-- [ ] Add all commands to api.ts + MockApi
-- [ ] Test: Plaid data normalizes to expected schema
-- [ ] Test: approval creates valid balanced transaction
-- [ ] Test: dismissal marks as ignored without creating transaction
-- [ ] CHECK: Can connect bank, pull transactions, approve/dismiss, all balanced, `npm run check` clean
+- [x] Add Plaid API credentials to app-level config (not per-file)
+- [x] Create `pending_bank_transactions` table (inside each .sqlite file)
+- [x] Plaid API → normalize → deduplicate → insert into pending_bank_transactions
+- [x] UI: pending transactions list with "Approve" flow
+- [x] Approve: user selects account → createTransaction() fires → removes from pending
+- [x] Dismiss: marks pending transaction as ignored
+- [x] Auto-match: suggest account based on previous categorizations of same payee
+- [x] Add all commands to api.ts + MockApi
+- [x] Test: Plaid data normalizes to expected schema
+- [x] Test: approval creates valid balanced transaction
+- [x] Test: dismissal marks as ignored without creating transaction
+- [x] CHECK: Can connect bank, pull transactions, approve/dismiss, all balanced, `npm run check` clean
 
 ## PHASE 31 — Reconciliation Service
 - [ ] Book balance vs statement balance comparison per account per period
@@ -261,8 +261,8 @@ See previous build-todo files for full history.
 
 ---
 
-## CURRENT PHASE: 30
-## LAST COMPLETED CHECK: Phase 29 — accrual vs cash basis reporting, 185 tests pass (2026-04-05)
+## CURRENT PHASE: 31
+## LAST COMPLETED CHECK: Phase 30 — bank feed pipeline, 189 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)

@@ -120,6 +120,20 @@ fn create_tables(conn: &Connection) -> Result<()> {
             value TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS pending_bank_transactions (
+            id TEXT PRIMARY KEY,
+            bank_account_id TEXT,
+            date TEXT NOT NULL,
+            description TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            payee TEXT,
+            bank_ref TEXT,
+            status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','APPROVED','DISMISSED')),
+            suggested_account_id TEXT,
+            created_transaction_id TEXT,
+            imported_at INTEGER NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS recurring_templates (
             id TEXT PRIMARY KEY,
             description TEXT NOT NULL,

@@ -233,6 +233,18 @@ export const api = {
   enterOpeningBalances: (balances: { account_id: string; balance: number }[], effectiveDate: string) =>
     invoke<string>('enter_opening_balances', { balances, effectiveDate }),
 
+  importBankTransactions: (items: { date: string; description: string; amount: number; payee?: string; bank_ref?: string }[]) =>
+    invoke<number>('import_bank_transactions', { items }),
+
+  listPendingBankTransactions: () =>
+    invoke<{ id: string; date: string; description: string; amount: number; payee: string | null; status: string; suggested_account_id: string | null }[]>('list_pending_bank_transactions'),
+
+  approveBankTransaction: (pendingId: string, accountId: string) =>
+    invoke<string>('approve_bank_transaction', { pendingId, accountId }),
+
+  dismissBankTransaction: (pendingId: string) =>
+    invoke<void>('dismiss_bank_transaction', { pendingId }),
+
   createRecurring: (data: {
     description: string; recurrence: string; start_date: string; end_date?: string;
     entries: { account_id: string; debit: number; credit: number; memo?: string }[]

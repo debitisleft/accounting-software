@@ -1358,6 +1358,145 @@ pub async fn get_module(db: State<'_, DbState>, module_id: String) -> Result<Mod
     ).map_err(|_| format!("Module not found: {}", module_id))
 }
 
+// ── Phase 30: Bank Feed Pipeline ─────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BankTransactionInput {
+    pub date: String,
+    pub description: String,
+    pub amount: i64,
+    pub payee: Option<String>,
+    pub bank_ref: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PendingBankTransaction {
+    pub id: String,
+    pub date: String,
+    pub description: String,
+    pub amount: i64,
+    pub payee: Option<String>,
+    pub bank_ref: Option<String>,
+    pub status: String,
+    pub suggested_account_id: Option<String>,
+    pub created_transaction_id: Option<String>,
+    pub imported_at: i64,
+}
+
+#[tauri::command]
+pub async fn import_bank_transactions(
+    db: State<'_, DbState>,
+    items: Vec<BankTransactionInput>,
+) -> Result<i64, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    let now = Utc::now().timestamp();
+    let mut imported: i64 = 0;
+
+    for item in &items {
+        // Deduplicate by bank_ref
+        if let Some(ref bref) = item.bank_ref {
+            let exists: bool = conn.query_row(
+                "SELECT COUNT(*) > 0 FROM pending_bank_transactions WHERE bank_ref = ?1",
+                params![bref], |row| row.get(0),
+            ).unwrap_or(false);
+            if exists { continue; }
+        }
+
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO pending_bank_transactions (id, date, description, amount, payee, bank_ref, status, imported_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'PENDING', ?7)",
+            params![id, item.date, item.description, item.amount, item.payee, item.bank_ref, now],
+        ).map_err(|e| e.to_string())?;
+        imported += 1;
+    }
+    Ok(imported)
+}
+
+#[tauri::command]
+pub async fn list_pending_bank_transactions(db: State<'_, DbState>) -> Result<Vec<PendingBankTransaction>, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    let mut stmt = conn.prepare(
+        "SELECT id, date, description, amount, payee, bank_ref, status, suggested_account_id, created_transaction_id, imported_at
+         FROM pending_bank_transactions WHERE status = 'PENDING' ORDER BY date DESC"
+    ).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| {
+        Ok(PendingBankTransaction {
+            id: row.get(0)?, date: row.get(1)?, description: row.get(2)?,
+            amount: row.get(3)?, payee: row.get(4)?, bank_ref: row.get(5)?,
+            status: row.get(6)?, suggested_account_id: row.get(7)?,
+            created_transaction_id: row.get(8)?, imported_at: row.get(9)?,
+        })
+    }).map_err(|e| e.to_string())?;
+    let mut result = Vec::new();
+    for row in rows { result.push(row.map_err(|e| e.to_string())?); }
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn approve_bank_transaction(
+    db: State<'_, DbState>,
+    pending_id: String,
+    account_id: String,
+) -> Result<String, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let (date, desc, amount): (String, String, i64) = conn.query_row(
+        "SELECT date, description, amount FROM pending_bank_transactions WHERE id = ?1 AND status = 'PENDING'",
+        params![pending_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).map_err(|_| "Pending transaction not found or already processed".to_string())?;
+
+    let cash_id: String = conn.query_row(
+        "SELECT id FROM accounts WHERE COALESCE(is_cash_account, 0) = 1 LIMIT 1",
+        [], |row| row.get(0),
+    ).map_err(|_| "No cash account found".to_string())?;
+
+    let tx_id = Uuid::new_v4().to_string();
+    let now = Utc::now().timestamp();
+
+    conn.execute("BEGIN", []).map_err(|e| e.to_string())?;
+    let result = (|| -> Result<(), String> {
+        conn.execute(
+            "INSERT INTO transactions (id, date, description, journal_type, is_locked, created_at) VALUES (?1, ?2, ?3, 'GENERAL', 0, ?4)",
+            params![tx_id, date, desc, now],
+        ).map_err(|e| e.to_string())?;
+
+        if amount > 0 {
+            let e1 = Uuid::new_v4().to_string();
+            let e2 = Uuid::new_v4().to_string();
+            conn.execute("INSERT INTO journal_entries (id, transaction_id, account_id, debit, credit) VALUES (?1, ?2, ?3, ?4, 0)", params![e1, tx_id, cash_id, amount]).map_err(|e| e.to_string())?;
+            conn.execute("INSERT INTO journal_entries (id, transaction_id, account_id, debit, credit) VALUES (?1, ?2, ?3, 0, ?4)", params![e2, tx_id, account_id, amount]).map_err(|e| e.to_string())?;
+        } else {
+            let abs_amount = -amount;
+            let e1 = Uuid::new_v4().to_string();
+            let e2 = Uuid::new_v4().to_string();
+            conn.execute("INSERT INTO journal_entries (id, transaction_id, account_id, debit, credit) VALUES (?1, ?2, ?3, ?4, 0)", params![e1, tx_id, account_id, abs_amount]).map_err(|e| e.to_string())?;
+            conn.execute("INSERT INTO journal_entries (id, transaction_id, account_id, debit, credit) VALUES (?1, ?2, ?3, 0, ?4)", params![e2, tx_id, cash_id, abs_amount]).map_err(|e| e.to_string())?;
+        }
+
+        conn.execute("UPDATE pending_bank_transactions SET status = 'APPROVED', created_transaction_id = ?1 WHERE id = ?2",
+            params![tx_id, pending_id]).map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => { conn.execute("COMMIT", []).map_err(|e| e.to_string())?; Ok(tx_id) }
+        Err(e) => { let _ = conn.execute("ROLLBACK", []); Err(e) }
+    }
+}
+
+#[tauri::command]
+pub async fn dismiss_bank_transaction(db: State<'_, DbState>, pending_id: String) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    conn.execute("UPDATE pending_bank_transactions SET status = 'DISMISSED' WHERE id = ?1", params![pending_id]).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ── Phase 28: Recurring Transactions ─────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]
