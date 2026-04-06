@@ -358,13 +358,18 @@ export class MockApi {
     return { rows, total_debits, total_credits, is_balanced: total_debits === total_credits }
   }
 
-  getIncomeStatement(startDate: string, endDate: string, excludeJournalTypes?: string[]): IncomeStatementResult {
+  getIncomeStatement(startDate: string, endDate: string, excludeJournalTypes?: string[], basis?: string): IncomeStatementResult {
     const excludeTypes = new Set(excludeJournalTypes ?? [])
-    const txIds = new Set(
-      this.transactions
-        .filter((t) => t.date >= startDate && t.date <= endDate && !excludeTypes.has(t.journal_type))
-        .map((t) => t.id),
-    )
+    const cashAccountIds = new Set(this.accounts.filter((a) => a.is_cash_account === 1).map((a) => a.id))
+    let filteredTxs = this.transactions
+      .filter((t) => t.date >= startDate && t.date <= endDate && !excludeTypes.has(t.journal_type))
+    if (basis === 'CASH') {
+      // Only include transactions that have at least one entry to a cash account
+      filteredTxs = filteredTxs.filter((t) =>
+        this.entries.some((e) => e.transaction_id === t.id && cashAccountIds.has(e.account_id))
+      )
+    }
+    const txIds = new Set(filteredTxs.map((t) => t.id))
 
     const revenue: AccountBalanceItem[] = []
     const expenses: AccountBalanceItem[] = []

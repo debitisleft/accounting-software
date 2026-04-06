@@ -298,11 +298,12 @@ export const api = {
       excludeJournalTypes: excludeJournalTypes ?? null,
     }),
 
-  getIncomeStatement: (startDate: string, endDate: string, excludeJournalTypes?: string[]) =>
+  getIncomeStatement: (startDate: string, endDate: string, excludeJournalTypes?: string[], basis?: string) =>
     invoke<IncomeStatementResult>('get_income_statement', {
       startDate,
       endDate,
       excludeJournalTypes: excludeJournalTypes ?? null,
+      basis: basis ?? null,
     }),
 
   getBalanceSheet: (asOfDate: string) =>

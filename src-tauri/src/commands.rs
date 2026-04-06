@@ -612,6 +612,7 @@ pub async fn get_income_statement(
     start_date: String,
     end_date: String,
     exclude_journal_types: Option<Vec<String>>,
+    basis: Option<String>,
 ) -> Result<IncomeStatementResult, String> {
     let guard = get_conn(&db)?;
     let conn = guard.as_ref().unwrap();
@@ -624,15 +625,19 @@ pub async fn get_income_statement(
         _ => String::new(),
     };
 
+    let cash_clause = if basis.as_deref() == Some("CASH") {
+        " AND t.id IN (SELECT je2.transaction_id FROM journal_entries je2 JOIN accounts a2 ON je2.account_id = a2.id WHERE COALESCE(a2.is_cash_account, 0) = 1)"
+    } else { "" };
+
     let query = format!(
         "SELECT a.id, a.code, a.name, a.type,
                 COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0), a.parent_id
          FROM accounts a
          LEFT JOIN journal_entries je ON je.account_id = a.id
-         LEFT JOIN transactions t ON je.transaction_id = t.id AND t.date >= ?1 AND t.date <= ?2{}
+         LEFT JOIN transactions t ON je.transaction_id = t.id AND t.date >= ?1 AND t.date <= ?2{}{}
          WHERE a.is_active = 1 AND a.type IN ('REVENUE', 'EXPENSE')
          GROUP BY a.id ORDER BY a.code",
-        exclude_clause
+        exclude_clause, cash_clause
     );
     let mut stmt = conn.prepare(&query).map_err(|e| e.to_string())?;
 

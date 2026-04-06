@@ -225,14 +225,14 @@ See previous build-todo files for full history.
 - [x] CHECK: Can create recurring template, generate due entries, pause/resume, `npm run check` clean
 
 ## PHASE 29 — Accrual vs Cash Basis Reporting
-- [ ] Add reporting basis toggle to income statement: Accrual (default) / Cash
-- [ ] Cash basis logic: only include revenue/expense entries where the transaction also has an entry to a cash account
-- [ ] Add toggle to balance sheet (optional — less common)
-- [ ] Toggle persisted in settings (default_reporting_basis)
-- [ ] Test: accrual income statement includes all revenue/expense
-- [ ] Test: cash basis income statement excludes entries without cash leg
-- [ ] Test: switching basis changes totals correctly
-- [ ] CHECK: Both bases render correctly, toggle works, all tests pass, `npm run check` clean
+- [x] Add reporting basis toggle to income statement: Accrual (default) / Cash
+- [x] Cash basis logic: only include revenue/expense entries where the transaction also has an entry to a cash account
+- [x] Add toggle to balance sheet (optional — less common)
+- [x] Toggle persisted in settings (default_reporting_basis)
+- [x] Test: accrual income statement includes all revenue/expense
+- [x] Test: cash basis income statement excludes entries without cash leg
+- [x] Test: switching basis changes totals correctly
+- [x] CHECK: Both bases render correctly, toggle works, all tests pass, `npm run check` clean
 
 ## PHASE 30 — Bank Feed Pipeline (Plaid Integration)
 - [ ] Add Plaid API credentials to app-level config (not per-file)
@@ -261,8 +261,8 @@ See previous build-todo files for full history.
 
 ---
 
-## CURRENT PHASE: 29
-## LAST COMPLETED CHECK: Phase 28 — recurring transactions, 182 tests pass (2026-04-05)
+## CURRENT PHASE: 30
+## LAST COMPLETED CHECK: Phase 29 — accrual vs cash basis reporting, 185 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)

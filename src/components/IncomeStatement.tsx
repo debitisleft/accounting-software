@@ -16,6 +16,7 @@ export function IncomeStatementReport({ version }: { version: number }) {
   const [endDate, setEndDate] = useState('2026-12-31')
   const [includeAdjusting, setIncludeAdjusting] = useState(true)
   const [excludeClosing, setExcludeClosing] = useState(true)
+  const [basis, setBasis] = useState<'ACCRUAL' | 'CASH'>('ACCRUAL')
   const [report, setReport] = useState<IncomeStatementResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -23,9 +24,9 @@ export function IncomeStatementReport({ version }: { version: number }) {
     const excludeTypes: string[] = []
     if (!includeAdjusting) excludeTypes.push('ADJUSTING')
     if (excludeClosing) excludeTypes.push('CLOSING')
-    api.getIncomeStatement(startDate, endDate, excludeTypes.length > 0 ? excludeTypes : undefined)
+    api.getIncomeStatement(startDate, endDate, excludeTypes.length > 0 ? excludeTypes : undefined, basis === 'CASH' ? 'CASH' : undefined)
       .then(setReport).catch((e) => setError(String(e)))
-  }, [version, startDate, endDate, includeAdjusting, excludeClosing])
+  }, [version, startDate, endDate, includeAdjusting, excludeClosing, basis])
 
   if (error) return <div>Error: {error}</div>
   if (!report) return <div>Loading...</div>
@@ -47,7 +48,14 @@ export function IncomeStatementReport({ version }: { version: number }) {
           <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{ marginLeft: '8px', padding: '4px' }} />
         </label>
       </div>
-      <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', fontSize: '13px' }}>
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '20px', fontSize: '13px', alignItems: 'center' }}>
+        <label>
+          Basis:
+          <select value={basis} onChange={(e) => setBasis(e.target.value as 'ACCRUAL' | 'CASH')} style={{ marginLeft: '6px', padding: '3px' }}>
+            <option value="ACCRUAL">Accrual</option>
+            <option value="CASH">Cash</option>
+          </select>
+        </label>
         <label>
           <input type="checkbox" checked={includeAdjusting} onChange={(e) => setIncludeAdjusting(e.target.checked)} />
           {' '}Include adjusting entries

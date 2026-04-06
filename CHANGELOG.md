@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 28 Complete — working on Phase 29
+## STATUS: Phase 29 Complete — working on Phase 30
 
 ## CURRENT STATE (2026-04-05)
-- 28 phases complete, 182 tests passing
+- 29 phases complete, 185 tests passing
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,13 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 29 — Accrual vs Cash Basis Reporting (2026-04-05)
+- Added `basis` parameter to getIncomeStatement (ACCRUAL default, CASH optional)
+- Cash basis: only includes transactions with at least one entry to a cash account (is_cash_account=1)
+- Accrual/Cash dropdown toggle on Income Statement UI
+- Rust uses subquery to filter cash-leg transactions
+- 185 tests passing (3 new cash basis tests)
 
 ### Phase 28 — Recurring Transactions (2026-04-05)
 - Added `recurring_templates` table with recurrence rules (WEEKLY/MONTHLY/QUARTERLY/YEARLY)
