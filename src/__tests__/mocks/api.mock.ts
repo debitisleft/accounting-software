@@ -190,6 +190,11 @@ export class MockApi {
     reference?: string
     entries: JournalEntryInput[]
   }): string {
+    // Check period locks
+    if (this.globalLocks.some((gl) => gl.end_date >= data.date)) {
+      throw new Error('Cannot create transaction in a locked period')
+    }
+
     const totalDebit = data.entries.reduce((s, e) => s + e.debit, 0)
     const totalCredit = data.entries.reduce((s, e) => s + e.credit, 0)
 
@@ -200,6 +205,14 @@ export class MockApi {
     }
     if (totalDebit === 0) {
       throw new Error('Transaction must have non-zero amounts')
+    }
+
+    // Check for deactivated accounts
+    for (const entry of data.entries) {
+      const acct = this.accounts.find((a) => a.id === entry.account_id)
+      if (acct && acct.is_active !== 1) {
+        throw new Error(`Cannot create transaction with deactivated account: ${acct.name}`)
+      }
     }
 
     const txId = this.genId()
@@ -465,6 +478,7 @@ export class MockApi {
     }
     const tx = this.transactions.find((t) => t.id === transactionId)
     if (!tx) throw new Error(`Transaction not found: ${transactionId}`)
+    if (tx.is_void === 1) throw new Error('Cannot edit a voided transaction')
 
     if (data.date !== undefined && data.date !== tx.date) {
       this.writeAuditLog(transactionId, 'date', tx.date, data.date)
@@ -486,6 +500,7 @@ export class MockApi {
     }
     const tx = this.transactions.find((t) => t.id === transactionId)
     if (!tx) throw new Error(`Transaction not found: ${transactionId}`)
+    if (tx.is_void === 1) throw new Error('Cannot edit a voided transaction')
 
     const totalDebit = newEntries.reduce((s, e) => s + e.debit, 0)
     const totalCredit = newEntries.reduce((s, e) => s + e.credit, 0)
@@ -519,6 +534,7 @@ export class MockApi {
     const tx = this.transactions.find((t) => t.id === transactionId)
     if (!tx) throw new Error(`Transaction not found: ${transactionId}`)
     if (tx.is_void) throw new Error('Transaction is already voided')
+    if (tx.void_of !== null) throw new Error('Cannot void a reversing entry')
 
     const originalEntries = this.entries.filter((e) => e.transaction_id === transactionId)
 
@@ -727,6 +743,9 @@ export class MockApi {
   lockPeriodGlobal(endDate: string): void {
     if (this.globalLocks.some((gl) => gl.end_date > endDate)) {
       throw new Error('Cannot lock: a later period is already locked (would create gap)')
+    }
+    if (this.globalLocks.some((gl) => gl.end_date === endDate)) {
+      return // Duplicate — idempotent
     }
     this.globalLocks.push({ id: this.genId(), end_date: endDate, locked_at: Date.now() })
   }

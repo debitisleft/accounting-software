@@ -336,8 +336,31 @@ pub async fn create_transaction(
 
     let guard = get_conn(&db)?;
     let conn = guard.as_ref().unwrap();
+
+    // Check period locks
+    let date_locked: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM reconciliation_periods WHERE account_id = 'GLOBAL' AND period_end >= ?1 AND is_locked = 1",
+        params![date],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+    if date_locked {
+        return Err("Cannot create transaction in a locked period".to_string());
+    }
+
     let tx_id = Uuid::new_v4().to_string();
     let now = Utc::now().timestamp();
+
+    // Check for deactivated accounts
+    for entry in &entries {
+        let (is_active, acct_name): (i64, String) = conn.query_row(
+            "SELECT is_active, name FROM accounts WHERE id = ?1",
+            params![entry.account_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).map_err(|_| format!("Account not found: {}", entry.account_id))?;
+        if is_active != 1 {
+            return Err(format!("Cannot create transaction with deactivated account: {}", acct_name));
+        }
+    }
 
     conn.execute("BEGIN", []).map_err(|e| e.to_string())?;
 
@@ -1315,6 +1338,16 @@ pub async fn update_transaction(
         return Err("Cannot edit: transaction is in a locked period".to_string());
     }
 
+    // Check if voided
+    let is_void: bool = conn.query_row(
+        "SELECT is_void FROM transactions WHERE id = ?1",
+        params![transaction_id],
+        |row| Ok(row.get::<_, i64>(0)? != 0),
+    ).map_err(|_| format!("Transaction not found: {}", transaction_id))?;
+    if is_void {
+        return Err("Cannot edit a voided transaction".to_string());
+    }
+
     // Get current values for audit log
     let (old_date, old_desc, old_ref): (String, String, Option<String>) = conn.query_row(
         "SELECT date, description, reference FROM transactions WHERE id = ?1",
@@ -1361,6 +1394,16 @@ pub async fn update_transaction_lines(
 
     if is_transaction_locked(&conn, &transaction_id)? {
         return Err("Cannot edit: transaction is in a locked period".to_string());
+    }
+
+    // Check if voided
+    let is_void: bool = conn.query_row(
+        "SELECT is_void FROM transactions WHERE id = ?1",
+        params![transaction_id],
+        |row| Ok(row.get::<_, i64>(0)? != 0),
+    ).map_err(|_| format!("Transaction not found: {}", transaction_id))?;
+    if is_void {
+        return Err("Cannot edit a voided transaction".to_string());
     }
 
     // Validate balance
@@ -1434,6 +1477,16 @@ pub async fn void_transaction(
 
     if already_void {
         return Err("Transaction is already voided".to_string());
+    }
+
+    // Check if this is a reversing entry (void_of IS NOT NULL)
+    let is_reversing: bool = conn.query_row(
+        "SELECT void_of IS NOT NULL FROM transactions WHERE id = ?1",
+        params![transaction_id],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+    if is_reversing {
+        return Err("Cannot void a reversing entry".to_string());
     }
 
     // Get original entries
@@ -2019,13 +2072,23 @@ pub async fn lock_period_global(
 
     // Check no existing lock is after this date (sequential enforcement)
     let existing_after: bool = conn.query_row(
-        "SELECT COUNT(*) > 0 FROM reconciliation_periods WHERE account_id = 'GLOBAL' AND period_end > ?1 AND is_locked = 1",
+        "SELECT COUNT(*) > 0 FROM reconciliation_periods WHERE account_id = 'GLOBAL' AND period_end >= ?1 AND is_locked = 1",
         params![end_date],
         |row| row.get(0),
     ).map_err(|e| e.to_string())?;
 
     if existing_after {
         return Err("Cannot lock: a later period is already locked (would create gap)".to_string());
+    }
+
+    // Check for exact duplicate — idempotent
+    let exact_dup: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM reconciliation_periods WHERE account_id = 'GLOBAL' AND period_end = ?1 AND is_locked = 1",
+        params![end_date],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+    if exact_dup {
+        return Ok(());
     }
 
     let id = Uuid::new_v4().to_string();

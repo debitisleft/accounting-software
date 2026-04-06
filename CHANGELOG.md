@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 18 Complete — working on Phase 19
+## STATUS: Phase 18 Complete + Engine Audit — working on Phase 19
 
 ## CURRENT STATE (2026-04-05)
-- 18 phases complete, 85 tests passing
+- 18 phases complete, 140 tests passing (85 existing + 55 audit)
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry,
   transaction register with edit/void, audit trail, period locking, backup/restore, CSV export,
@@ -11,6 +11,15 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Engine Audit Bug Fixes (2026-04-05)
+- Fixed: createTransaction now checks period locks (was CRITICAL — locked periods were bypassable)
+- Fixed: Cannot void a reversing entry (prevents void-of-void chains)
+- Fixed: Cannot edit voided transactions (voided entries are now immutable)
+- Fixed: Cannot create transactions referencing deactivated accounts
+- Fixed: Duplicate period locks on same date prevented (idempotent; backwards locks still rejected)
+- All 5 fixes applied to both Rust backend and MockApi
+- 140 tests passing (85 existing + 55 audit)
 
 ### Phase 18 — File-Based Architecture (.sqlite files) (2026-04-05)
 **Major architectural change:** App now works like QuickBooks Desktop — each company is its own .sqlite file.
