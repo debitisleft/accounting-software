@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 25 Complete — working on Phase 26
+## STATUS: Phase 26 Complete — working on Phase 27
 
 ## CURRENT STATE (2026-04-05)
-- 25 phases complete, 174 tests passing
+- 26 phases complete, 174 tests passing
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,16 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 26 — Excel-Style Transaction Register UX (2026-04-05)
+- Complete rewrite of TransactionRegister with inline edit mode
+- "Edit Mode" button makes all unlocked rows editable inline (date, ref, description)
+- Multi-entry transactions collapsed in edit mode, expand on click outside edit mode
+- Period-locked and voided rows greyed out and non-editable
+- Tab key navigates between editable cells, Escape restores original value
+- Orange dot indicator on modified rows, unsaved changes counter
+- "Save All Changes" batch commits all modified transactions with silent audit logging
+- 174 tests passing (UI-only phase, no new engine tests needed)
 
 ### Phase 25 — Account Hierarchy in Reports (2026-04-05)
 - `get_accounts` now returns `depth` computed from parent chain

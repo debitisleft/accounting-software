@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { api, type TransactionWithEntries, type Account, type AuditLogEntry, type JournalEntryInput } from '../lib/api'
 import { downloadCsv } from '../lib/download'
 
@@ -33,18 +33,11 @@ function ExpandedTransaction({
   onRefresh: () => void
 }) {
   const accountMap = new Map(accounts.map((a) => [a.id, a]))
-  const [editMeta, setEditMeta] = useState(false)
   const [editLines, setEditLines] = useState(false)
   const [showAudit, setShowAudit] = useState(false)
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
   const [msg, setMsg] = useState('')
 
-  // Meta edit state
-  const [editDate, setEditDate] = useState(tx.date)
-  const [editDesc, setEditDesc] = useState(tx.description)
-  const [editRef, setEditRef] = useState(tx.reference ?? '')
-
-  // Lines edit state
   const [lineRows, setLineRows] = useState<{ accountId: string; debitStr: string; creditStr: string; memo: string }[]>([])
 
   const isLocked = tx.is_locked !== 0
@@ -63,15 +56,6 @@ function ExpandedTransaction({
   const totalLineDebit = lineRows.reduce((s, r) => s + dollarsToCents(r.debitStr), 0)
   const totalLineCredit = lineRows.reduce((s, r) => s + dollarsToCents(r.creditStr), 0)
   const linesBalanced = totalLineDebit === totalLineCredit && totalLineDebit > 0
-
-  const saveMeta = async () => {
-    try {
-      await api.updateTransaction(tx.id, { date: editDate, description: editDesc, reference: editRef })
-      setEditMeta(false)
-      setMsg('Saved')
-      onRefresh()
-    } catch (e) { setMsg(`Error: ${e instanceof Error ? e.message : String(e)}`) }
-  }
 
   const saveLines = async () => {
     const entries: JournalEntryInput[] = lineRows.map((r) => ({
@@ -111,12 +95,10 @@ function ExpandedTransaction({
 
   return (
     <div style={{ padding: '12px 12px 12px 40px', backgroundColor: '#fafafa', borderBottom: '1px solid #e0e0e0' }} onClick={(e) => e.stopPropagation()}>
-      {/* Action buttons */}
       {!isLocked && !isVoid && (
         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-          {!editMeta && !editLines && (
+          {!editLines && (
             <>
-              <button onClick={() => setEditMeta(true)} style={{ fontSize: '12px', padding: '3px 10px', cursor: 'pointer' }}>Edit</button>
               <button onClick={startEditLines} style={{ fontSize: '12px', padding: '3px 10px', cursor: 'pointer' }}>Edit Amounts</button>
               <button onClick={handleVoid} style={{ fontSize: '12px', padding: '3px 10px', cursor: 'pointer', color: '#c00' }}>Void</button>
             </>
@@ -136,18 +118,6 @@ function ExpandedTransaction({
         </div>
       )}
 
-      {/* Meta edit mode */}
-      {editMeta && (
-        <div style={{ marginBottom: '8px', display: 'flex', gap: '8px', alignItems: 'end', flexWrap: 'wrap' }}>
-          <label style={{ fontSize: '12px' }}>Date<input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} style={{ display: 'block', padding: '2px' }} /></label>
-          <label style={{ fontSize: '12px' }}>Description<input value={editDesc} onChange={(e) => setEditDesc(e.target.value)} style={{ display: 'block', padding: '2px', width: '250px' }} /></label>
-          <label style={{ fontSize: '12px' }}>Ref<input value={editRef} onChange={(e) => setEditRef(e.target.value)} style={{ display: 'block', padding: '2px', width: '80px' }} /></label>
-          <button onClick={saveMeta} style={{ fontSize: '12px', padding: '3px 10px', backgroundColor: '#4CAF50', color: '#fff', border: 'none', cursor: 'pointer' }}>Save</button>
-          <button onClick={() => setEditMeta(false)} style={{ fontSize: '12px', padding: '3px 10px', cursor: 'pointer' }}>Cancel</button>
-        </div>
-      )}
-
-      {/* Lines display or edit */}
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
         <thead>
           <tr style={{ color: '#888' }}>
@@ -190,7 +160,6 @@ function ExpandedTransaction({
         </div>
       )}
 
-      {/* Audit trail */}
       {showAudit && (
         <div style={{ marginTop: '8px', padding: '8px', backgroundColor: '#f0f0f0', borderRadius: '4px', fontSize: '11px' }}>
           <strong>Audit Trail</strong>
@@ -218,6 +187,14 @@ function ExpandedTransaction({
   )
 }
 
+// ── Inline Edit State ───────────────────────────────────
+
+interface InlineEdit {
+  date: string
+  description: string
+  reference: string
+}
+
 // ── Main Register ────────────────────────────────────────
 
 export function TransactionRegister({ version }: { version: number }) {
@@ -234,6 +211,12 @@ export function TransactionRegister({ version }: { version: number }) {
   const [memoSearch, setMemoSearch] = useState('')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
+
+  // Edit mode state
+  const [editMode, setEditMode] = useState(false)
+  const [edits, setEdits] = useState<Record<string, InlineEdit>>({})
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
 
   const refresh = () => setLocalVersion((v) => v + 1)
 
@@ -252,6 +235,77 @@ export function TransactionRegister({ version }: { version: number }) {
       .catch((e) => setError(String(e)))
   }, [version, localVersion, page, pageSize, startDate, endDate, accountId, memoSearch])
 
+  // Reset edits when entering edit mode
+  const enterEditMode = () => {
+    setEditMode(true)
+    setEdits({})
+    setSaveMsg('')
+  }
+
+  const exitEditMode = () => {
+    setEditMode(false)
+    setEdits({})
+    setSaveMsg('')
+  }
+
+  const getEdit = (tx: TransactionWithEntries): InlineEdit => {
+    return edits[tx.id] ?? { date: tx.date, description: tx.description, reference: tx.reference ?? '' }
+  }
+
+  const setEdit = (txId: string, field: keyof InlineEdit, value: string) => {
+    setEdits((prev) => {
+      const tx = transactions.find((t) => t.id === txId)!
+      const current = prev[txId] ?? { date: tx.date, description: tx.description, reference: tx.reference ?? '' }
+      return { ...prev, [txId]: { ...current, [field]: value } }
+    })
+  }
+
+  const isModified = (txId: string): boolean => {
+    const edit = edits[txId]
+    if (!edit) return false
+    const tx = transactions.find((t) => t.id === txId)!
+    return edit.date !== tx.date || edit.description !== tx.description || edit.reference !== (tx.reference ?? '')
+  }
+
+  const modifiedCount = Object.keys(edits).filter(isModified).length
+
+  const handleSaveAll = async () => {
+    setSaving(true)
+    setSaveMsg('')
+    let saved = 0
+    let errors = 0
+    for (const [txId, edit] of Object.entries(edits)) {
+      if (!isModified(txId)) continue
+      try {
+        await api.updateTransaction(txId, { date: edit.date, description: edit.description, reference: edit.reference })
+        saved++
+      } catch {
+        errors++
+      }
+    }
+    setSaving(false)
+    setSaveMsg(`Saved ${saved} change${saved !== 1 ? 's' : ''}${errors > 0 ? `, ${errors} error${errors !== 1 ? 's' : ''}` : ''}`)
+    if (saved > 0) {
+      setEdits({})
+      refresh()
+    }
+  }
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent, txId: string, field: keyof InlineEdit) => {
+    if (e.key === 'Escape') {
+      // Restore original value
+      const tx = transactions.find((t) => t.id === txId)!
+      const original = { date: tx.date, description: tx.description, reference: tx.reference ?? '' }
+      setEdits((prev) => {
+        const updated = { ...prev }
+        if (updated[txId]) {
+          updated[txId] = { ...updated[txId], [field]: original[field] }
+        }
+        return updated
+      })
+    }
+  }, [transactions])
+
   const totalPages = Math.ceil(total / pageSize)
   const accountMap = new Map(accounts.map((a) => [a.id, a]))
   const hasFilters = startDate || endDate || accountId || memoSearch
@@ -262,8 +316,30 @@ export function TransactionRegister({ version }: { version: number }) {
     <div style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Transaction Register</h2>
-        <button onClick={async () => { const csv = await api.exportCsv('TransactionRegister', { startDate: startDate || undefined, endDate: endDate || undefined, accountId: accountId || undefined, memoSearch: memoSearch || undefined }); downloadCsv(csv, 'transactions.csv') }} style={{ padding: '6px 12px', cursor: 'pointer', fontSize: '12px' }}>Export CSV</button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {editMode ? (
+            <>
+              {modifiedCount > 0 && (
+                <span style={{ fontSize: '12px', color: '#E65100', fontWeight: 'bold' }}>
+                  {modifiedCount} unsaved change{modifiedCount !== 1 ? 's' : ''}
+                </span>
+              )}
+              <button onClick={handleSaveAll} disabled={saving || modifiedCount === 0}
+                style={{ padding: '6px 16px', backgroundColor: modifiedCount > 0 ? '#4CAF50' : '#ccc', color: '#fff', border: 'none', borderRadius: '4px', cursor: modifiedCount > 0 ? 'pointer' : 'not-allowed', fontSize: '12px' }}>
+                {saving ? 'Saving...' : 'Save All Changes'}
+              </button>
+              <button onClick={exitEditMode} style={{ padding: '6px 12px', cursor: 'pointer', fontSize: '12px' }}>Exit Edit Mode</button>
+            </>
+          ) : (
+            <>
+              <button onClick={enterEditMode} style={{ padding: '6px 12px', cursor: 'pointer', fontSize: '12px', backgroundColor: '#2196F3', color: '#fff', border: 'none', borderRadius: '4px' }}>Edit Mode</button>
+              <button onClick={async () => { const csv = await api.exportCsv('TransactionRegister', { startDate: startDate || undefined, endDate: endDate || undefined, accountId: accountId || undefined, memoSearch: memoSearch || undefined }); downloadCsv(csv, 'transactions.csv') }} style={{ padding: '6px 12px', cursor: 'pointer', fontSize: '12px' }}>Export CSV</button>
+            </>
+          )}
+        </div>
       </div>
+
+      {saveMsg && <div style={{ fontSize: '12px', color: saveMsg.includes('error') ? 'red' : 'green', marginBottom: '8px' }}>{saveMsg}</div>}
 
       {/* Filter bar */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px', padding: '12px', backgroundColor: '#f5f5f5', borderRadius: '6px' }}>
@@ -300,29 +376,52 @@ export function TransactionRegister({ version }: { version: number }) {
             const primaryAccount = accountMap.get(tx.entries[0]?.account_id)?.name ?? ''
             const accountLabel = tx.entries.length <= 2 ? primaryAccount : `${primaryAccount} (split ${tx.entries.length})`
             const isLocked = tx.is_locked !== 0
+            const isVoid = tx.is_void !== 0
+            const canEdit = editMode && !isLocked && !isVoid
+            const modified = isModified(tx.id)
+            const edit = getEdit(tx)
 
             return (
-              <tr key={tx.id} style={{ cursor: 'pointer' }} onClick={() => setExpandedId(isExpanded ? null : tx.id)}>
+              <tr key={tx.id} style={{ cursor: editMode ? 'default' : 'pointer' }} onClick={() => { if (!editMode) setExpandedId(isExpanded ? null : tx.id) }}>
                 <td colSpan={6} style={{ padding: 0 }}>
                   <div style={{
-                    display: 'grid', gridTemplateColumns: '90px 60px 1fr 180px 100px 60px',
-                    alignItems: 'center', padding: '8px', borderBottom: '1px solid #f0f0f0',
-                    textDecoration: tx.is_void ? 'line-through' : 'none',
-                    opacity: tx.is_void ? 0.5 : 1,
-                    backgroundColor: isLocked ? '#f9f9f9' : 'transparent',
+                    display: 'grid', gridTemplateColumns: '100px 70px 1fr 180px 100px 60px',
+                    alignItems: 'center', padding: '4px 8px', borderBottom: '1px solid #f0f0f0',
+                    textDecoration: isVoid ? 'line-through' : 'none',
+                    opacity: isVoid ? 0.5 : (isLocked && editMode) ? 0.6 : 1,
+                    backgroundColor: modified ? '#fff8e1' : isLocked ? '#f9f9f9' : 'transparent',
                   }}>
-                    <span style={{ fontFamily: 'monospace', fontSize: '13px' }}>{tx.date}</span>
-                    <span style={{ fontSize: '12px', color: '#888' }}>{tx.reference ?? ''}</span>
-                    <span style={{ fontSize: '13px' }}>{tx.description}</span>
+                    {canEdit ? (
+                      <input type="date" value={edit.date} onChange={(e) => setEdit(tx.id, 'date', e.target.value)}
+                        onKeyDown={(e) => handleKeyDown(e, tx.id, 'date')}
+                        style={{ fontFamily: 'monospace', fontSize: '12px', padding: '2px', border: '1px solid #ddd', width: '90px' }} tabIndex={0} />
+                    ) : (
+                      <span style={{ fontFamily: 'monospace', fontSize: '13px' }}>{tx.date}</span>
+                    )}
+                    {canEdit ? (
+                      <input value={edit.reference} onChange={(e) => setEdit(tx.id, 'reference', e.target.value)}
+                        onKeyDown={(e) => handleKeyDown(e, tx.id, 'reference')}
+                        style={{ fontSize: '12px', padding: '2px', border: '1px solid #ddd', width: '60px' }} tabIndex={0} />
+                    ) : (
+                      <span style={{ fontSize: '12px', color: '#888' }}>{tx.reference ?? ''}</span>
+                    )}
+                    {canEdit ? (
+                      <input value={edit.description} onChange={(e) => setEdit(tx.id, 'description', e.target.value)}
+                        onKeyDown={(e) => handleKeyDown(e, tx.id, 'description')}
+                        style={{ fontSize: '13px', padding: '2px', border: '1px solid #ddd', width: '100%' }} tabIndex={0} />
+                    ) : (
+                      <span style={{ fontSize: '13px' }}>{tx.description}</span>
+                    )}
                     <span style={{ fontSize: '12px', color: '#666' }}>{accountLabel}</span>
                     <span style={{ textAlign: 'right', fontFamily: 'monospace', fontSize: '13px' }}>{formatCents(totalDebit)}</span>
                     <span style={{ textAlign: 'center', display: 'flex', gap: '3px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                      {modified && <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#FF9800', display: 'inline-block' }} title="Modified" />}
                       {tx.journal_type && tx.journal_type !== 'GENERAL' ? <span style={{ backgroundColor: tx.journal_type === 'ADJUSTING' ? '#2196F3' : tx.journal_type === 'CLOSING' ? '#9C27B0' : tx.journal_type === 'REVERSING' ? '#FF9800' : '#607D8B', color: '#fff', padding: '1px 6px', borderRadius: '3px', fontSize: '10px', fontWeight: 'bold' }}>{tx.journal_type.slice(0, 3)}</span> : null}
-                      {tx.is_void ? <span style={{ backgroundColor: '#f44336', color: '#fff', padding: '1px 6px', borderRadius: '3px', fontSize: '10px', fontWeight: 'bold' }}>VOID</span> : null}
-                      {isLocked && !tx.is_void ? <span style={{ fontSize: '12px' }} title="Period locked">🔒</span> : null}
+                      {isVoid ? <span style={{ backgroundColor: '#f44336', color: '#fff', padding: '1px 6px', borderRadius: '3px', fontSize: '10px', fontWeight: 'bold' }}>VOID</span> : null}
+                      {isLocked && !isVoid ? <span style={{ fontSize: '12px' }} title="Period locked">🔒</span> : null}
                     </span>
                   </div>
-                  {isExpanded && <ExpandedTransaction tx={tx} accounts={accounts} onRefresh={refresh} />}
+                  {isExpanded && !editMode && <ExpandedTransaction tx={tx} accounts={accounts} onRefresh={refresh} />}
                 </td>
               </tr>
             )

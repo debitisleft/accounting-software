@@ -188,16 +188,16 @@ See previous build-todo files for full history.
 ---
 
 ## PHASE 26 — Excel-Style Transaction Register UX
-- [ ] Hybrid interaction: inline editing for metadata fields (date, memo, ref), panel expansion for amounts
-- [ ] Edit mode activated by sidebar button — makes all unlocked rows editable at once
-- [ ] Multi-entry transactions always collapsed until explicitly clicked, even in edit mode
-- [ ] Period-locked and reconciled rows greyed out and non-editable at both UI and engine level
-- [ ] Silent audit logging — no confirmation dialog per edit, changes logged automatically
-- [ ] Tab key moves between editable cells (left→right, then next row)
-- [ ] Escape cancels current cell edit, restores previous value
-- [ ] Unsaved changes indicator (dot or color change) on modified rows
-- [ ] "Save All Changes" button when in edit mode (batch commit)
-- [ ] CHECK: Can enter edit mode, modify multiple transactions inline, save all, audit log reflects changes, `npm run check` clean
+- [x] Hybrid interaction: inline editing for metadata fields (date, memo, ref), panel expansion for amounts
+- [x] Edit mode activated by sidebar button — makes all unlocked rows editable at once
+- [x] Multi-entry transactions always collapsed until explicitly clicked, even in edit mode
+- [x] Period-locked and reconciled rows greyed out and non-editable at both UI and engine level
+- [x] Silent audit logging — no confirmation dialog per edit, changes logged automatically
+- [x] Tab key moves between editable cells (left→right, then next row)
+- [x] Escape cancels current cell edit, restores previous value
+- [x] Unsaved changes indicator (dot or color change) on modified rows
+- [x] "Save All Changes" button when in edit mode (batch commit)
+- [x] CHECK: Can enter edit mode, modify multiple transactions inline, save all, audit log reflects changes, `npm run check` clean
 
 ## PHASE 27 — CSV Import with Column Mapping
 - [ ] Upload CSV → preview first 10 rows in table
@@ -261,8 +261,8 @@ See previous build-todo files for full history.
 
 ---
 
-## CURRENT PHASE: 26
-## LAST COMPLETED CHECK: Phase 25 — account hierarchy in reports, 174 tests pass (2026-04-05)
+## CURRENT PHASE: 27
+## LAST COMPLETED CHECK: Phase 26 — Excel-style transaction register UX, 174 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)
