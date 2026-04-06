@@ -207,6 +207,15 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         conn.execute_batch("UPDATE accounts SET is_cash_account = 1 WHERE code IN ('1000', '1010', '1020');")?;
     }
 
+    // Migration: add is_reconciled column to journal_entries if not present
+    let je_cols: Vec<String> = conn
+        .prepare("PRAGMA table_info(journal_entries)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>>>()?;
+    if !je_cols.iter().any(|c| c == "is_reconciled") {
+        conn.execute_batch("ALTER TABLE journal_entries ADD COLUMN is_reconciled INTEGER NOT NULL DEFAULT 0;")?;
+    }
+
     Ok(())
 }
 

@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 31 Complete — all planned phases done
+## STATUS: Phase 31 Complete + Audit V2 fixes — all planned phases done
 
-## CURRENT STATE (2026-04-05)
-- 31 phases complete, 194 tests passing
+## CURRENT STATE (2026-04-06)
+- 31 phases complete, 296 tests passing (194 existing + 103 audit v2 − 1 skipped)
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,16 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Engine Audit V2 Bug Fixes (2026-04-06)
+- Fixed: Opening balances wizard now replaces previous opening balances instead of doubling
+- Fixed: Fiscal year close works with zero activity (dormant years)
+- Fixed: Circular parent account references prevented in createAccount
+- Fixed: Monthly recurring transactions clamp to end-of-month correctly (Jan 31 → Feb 28 → Mar 31)
+- Fixed: Reconciliation now tracks line-level matched/unmatched entries (is_reconciled on journal_entries)
+- Added: getUnreconciledEntries command (Rust + MockApi + api.ts)
+- All 5 fixes applied to both Rust backend and MockApi
+- 296 tests passing (1 skipped — D5 deleteAccount by design)
 
 ### Phase 31 — Reconciliation Service (2026-04-05)
 - startReconciliation: compares book balance vs statement balance

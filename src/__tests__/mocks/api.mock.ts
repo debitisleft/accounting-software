@@ -48,6 +48,7 @@ interface StoredEntry {
   debit: number
   credit: number
   memo: string | null
+  is_reconciled: number
 }
 
 function isDebitNormal(type: string): boolean {
@@ -294,6 +295,7 @@ export class MockApi {
         debit: entry.debit,
         credit: entry.credit,
         memo: entry.memo ?? null,
+        is_reconciled: 0,
       })
     }
 
@@ -591,6 +593,7 @@ export class MockApi {
         debit: entry.debit,
         credit: entry.credit,
         memo: entry.memo ?? null,
+        is_reconciled: 0,
       })
     }
     this.writeAuditLog(transactionId, 'lines', oldStr, newStr)
@@ -630,6 +633,7 @@ export class MockApi {
         debit: entry.credit,
         credit: entry.debit,
         memo: entry.memo,
+        is_reconciled: 0,
       })
     }
 
@@ -867,6 +871,21 @@ export class MockApi {
       throw new Error(`Account code '${data.code}' already exists`)
     }
 
+    // Check for circular parent reference
+    if (data.parentId) {
+      const parent = this.accounts.find((a) => a.id === data.parentId)
+      if (!parent) throw new Error(`Parent account not found: ${data.parentId}`)
+      // Walk parent chain — if we find data.parentId pointing back, it's circular
+      let current = parent.parent_id
+      let depth = 0
+      while (current) {
+        if (current === data.parentId) throw new Error('Circular parent reference detected')
+        const p = this.accounts.find((a) => a.id === current)
+        current = p?.parent_id ?? null
+        if (++depth > 10) throw new Error('Circular parent reference detected')
+      }
+    }
+
     const id = this.genId()
     this.accounts.push({
       id,
@@ -925,6 +944,13 @@ export class MockApi {
     const obeAcct = this.accounts.find((a) => a.code === '3500')
     if (!obeAcct) throw new Error('Opening Balance Equity account not found')
 
+    // Remove any existing OPENING transaction (opening balances are a setup step, not financial event)
+    const existingOpening = this.transactions.find((t) => t.journal_type === 'OPENING')
+    if (existingOpening) {
+      this.entries = this.entries.filter((e) => e.transaction_id !== existingOpening.id)
+      this.transactions = this.transactions.filter((t) => t.id !== existingOpening.id)
+    }
+
     const entries: { account_id: string; debit: number; credit: number; memo?: string }[] = []
 
     for (const { account_id, balance } of balances) {
@@ -981,6 +1007,7 @@ export class MockApi {
         debit: entry.debit,
         credit: entry.credit,
         memo: entry.memo ?? null,
+        is_reconciled: 0,
       })
     }
 
@@ -1027,9 +1054,8 @@ export class MockApi {
       entries.push({ account_id: reAcct.id, debit: -netIncome, credit: 0 })
     }
 
-    if (entries.length === 0) throw new Error('No revenue or expense balances to close')
-
     // Create CLOSING transaction directly (bypass system type restriction)
+    // Zero-activity years are valid — create the entry even with no lines
     const txId = this.genId()
     this.transactions.push({
       id: txId,
@@ -1051,6 +1077,7 @@ export class MockApi {
         debit: entry.debit,
         credit: entry.credit,
         memo: null,
+        is_reconciled: 0,
       })
     }
 
@@ -1280,6 +1307,18 @@ export class MockApi {
     rec.is_reconciled = 1
     rec.reconciled_at = Date.now()
 
+    // Mark all entries in the reconciled period + account as reconciled
+    const reconciledTxIds = new Set(
+      this.transactions
+        .filter((t) => t.date <= rec.statement_date)
+        .map((t) => t.id)
+    )
+    for (const entry of this.entries) {
+      if (entry.account_id === rec.account_id && reconciledTxIds.has(entry.transaction_id)) {
+        entry.is_reconciled = 1
+      }
+    }
+
     // Lock the period through the statement date
     if (!this.globalLocks.some((gl) => gl.end_date >= rec.statement_date)) {
       this.globalLocks.push({ id: this.genId(), end_date: rec.statement_date, locked_at: Date.now() })
@@ -1290,6 +1329,10 @@ export class MockApi {
     return this.reconciliations
       .filter((r) => r.account_id === accountId && r.is_reconciled === 1)
       .sort((a, b) => b.statement_date.localeCompare(a.statement_date))
+  }
+
+  getUnreconciledEntries(accountId: string): StoredEntry[] {
+    return this.entries.filter((e) => e.account_id === accountId && e.is_reconciled === 0)
   }
 
   // ── Bank Feed ──────────────────────────────────────────
@@ -1411,17 +1454,32 @@ export class MockApi {
   }
 
   private nextDueDate(tmpl: typeof this.recurringTemplates[0]): string | null {
-    const base = tmpl.last_generated ?? tmpl.start_date
-    const d = new Date(base)
-    switch (tmpl.recurrence) {
-      case 'WEEKLY': d.setDate(d.getDate() + 7); break
-      case 'MONTHLY': d.setMonth(d.getMonth() + 1); break
-      case 'QUARTERLY': d.setMonth(d.getMonth() + 3); break
-      case 'YEARLY': d.setFullYear(d.getFullYear() + 1); break
-    }
     // If no last_generated, the first due date is start_date itself
     if (!tmpl.last_generated) return tmpl.start_date
-    const next = d.toISOString().split('T')[0]
+
+    const base = tmpl.last_generated
+    const [yearStr, monthStr] = base.split('-')
+    let year = parseInt(yearStr, 10)
+    let month = parseInt(monthStr, 10) - 1 // 0-based
+    // Use the ORIGINAL start day for clamping (not last_generated day)
+    const originalDay = parseInt(tmpl.start_date.split('-')[2], 10)
+
+    switch (tmpl.recurrence) {
+      case 'WEEKLY': {
+        const d = new Date(Date.UTC(year, month, originalDay + 7))
+        const next = d.toISOString().split('T')[0]
+        return (tmpl.end_date && next > tmpl.end_date) ? null : next
+      }
+      case 'MONTHLY': month += 1; break
+      case 'QUARTERLY': month += 3; break
+      case 'YEARLY': year += 1; break
+    }
+
+    // Clamp to last day of target month to prevent date drift
+    // e.g. Jan 31 → Feb 28, Mar 31, Apr 30
+    const daysInTargetMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
+    const clampedDay = Math.min(originalDay, daysInTargetMonth)
+    const next = `${year}-${String(month + 1).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`
     if (tmpl.end_date && next > tmpl.end_date) return null
     return next
   }

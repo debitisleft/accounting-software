@@ -141,9 +141,13 @@ describe('A: Fiscal Year Close Correctness', () => {
     expect(() => mock.closeFiscalYear('2025-12-31')).toThrow('already closed')
   })
 
-  it('A7: closing with zero revenue AND zero expenses throws', () => {
+  it('A7: closing with zero revenue AND zero expenses succeeds (dormant year)', () => {
     // No revenue or expense transactions created
-    expect(() => mock.closeFiscalYear('2025-12-31')).toThrow('No revenue or expense balances to close')
+    const result = mock.closeFiscalYear('2025-12-31')
+    expect(result.net_income).toBe(0)
+    expect(result.transaction_id).toBeDefined()
+    // Period should still be locked
+    expect(mock.isDateLocked('2025-12-31')).toBe(true)
   })
 
   it('A8: income statement EXCLUDES closing entries when requested', () => {
@@ -386,16 +390,18 @@ describe('B: Opening Balances', () => {
     expect(tb.is_balanced).toBe(true)
   })
 
-  it('B10: entering opening balances twice creates a second transaction', () => {
+  it('B10: entering opening balances twice REPLACES the first (no doubling)', () => {
     const cash = find(mock, '1000')
 
-    const txId1 = mock.enterOpeningBalances([{ account_id: cash.id, balance: 100000 }], '2025-01-01')
+    mock.enterOpeningBalances([{ account_id: cash.id, balance: 100000 }], '2025-01-01')
     const txId2 = mock.enterOpeningBalances([{ account_id: cash.id, balance: 200000 }], '2025-01-01')
 
-    expect(txId1).not.toBe(txId2)
-    // Balance is cumulative — both opening transactions apply
-    // This is likely a finding: entering opening balances twice doubles them
-    expect(mock.getAccountBalance(cash.id, '2025-01-01')).toBe(300000)
+    // Second call replaces first — balance is 200000, not 300000
+    expect(mock.getAccountBalance(cash.id, '2025-01-01')).toBe(200000)
+    // Only one OPENING transaction should exist
+    const openingTxs = mock.transactions.filter((t) => t.journal_type === 'OPENING')
+    expect(openingTxs.length).toBe(1)
+    expect(openingTxs[0].id).toBe(txId2)
   })
 })
 
@@ -965,7 +971,7 @@ describe('G: Recurring Transactions', () => {
     expect(mock.getDueRecurring('2025-04-30').length).toBe(0)
   })
 
-  it('G6: monthly on Jan 31 — what date does February generate', () => {
+  it('G6: monthly on Jan 31 clamps to end-of-month correctly', () => {
     const cash = find(mock, '1000')
     const rent = find(mock, '5100')
 
@@ -982,13 +988,22 @@ describe('G: Recurring Transactions', () => {
     // First due date is start_date itself
     mock.generateRecurring(tmplId, '2025-01-31')
 
-    // Next due date: Jan 31 + 1 month via JS Date
-    const due = mock.getDueRecurring('2025-03-15')
-    expect(due.length).toBe(1)
-    // JavaScript Date setMonth(1) on Jan 31 => Feb 28 (or Mar 3 depending on year)
-    // This is a known edge case — just verify it returns a valid date
-    const dueDate = due[0].due_date
-    expect(dueDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    // Next due: Jan 31 + 1 month → Feb 28 (2025 is not a leap year)
+    const due1 = mock.getDueRecurring('2025-03-01')
+    expect(due1.length).toBe(1)
+    expect(due1[0].due_date).toBe('2025-02-28')
+
+    // Generate Feb, check March — uses original start day (31) for clamping
+    mock.generateRecurring(tmplId, '2025-02-28')
+    const due2 = mock.getDueRecurring('2025-04-01')
+    expect(due2.length).toBe(1)
+    expect(due2[0].due_date).toBe('2025-03-31') // Original day 31, Mar has 31 days
+
+    // Generate Mar, check April
+    mock.generateRecurring(tmplId, '2025-03-31')
+    const due3 = mock.getDueRecurring('2025-05-01')
+    expect(due3.length).toBe(1)
+    expect(due3[0].due_date).toBe('2025-04-30') // Original day 31, Apr has 30 days
   })
 
   it('G7: deleteRecurring removes template', () => {
@@ -1363,8 +1378,25 @@ describe('K: Reconciliation', () => {
     expect(rec.difference).toBe(0)
   })
 
-  it.skip('K2: matched/unmatched tracking not implemented in MockApi', () => {
-    // MockApi reconciliation doesn't have explicit matched/unmatched line tracking
+  it('K2: completing reconciliation marks entries as reconciled', () => {
+    const cash = find(mock, '1000')
+    const sales = find(mock, '4000')
+
+    mock.createTransaction({ date: '2025-06-01', description: 'Sale', entries: [
+      { account_id: cash.id, debit: 100000, credit: 0 },
+      { account_id: sales.id, debit: 0, credit: 100000 },
+    ]})
+
+    // Before reconciliation, entries are unreconciled
+    const unreconBefore = mock.getUnreconciledEntries(cash.id)
+    expect(unreconBefore.length).toBe(1)
+
+    const recId = mock.startReconciliation(cash.id, '2025-06-30', 100000)
+    mock.completeReconciliation(recId)
+
+    // After reconciliation, entries are marked reconciled
+    const unreconAfter = mock.getUnreconciledEntries(cash.id)
+    expect(unreconAfter.length).toBe(0)
   })
 
   it('K3: complete reconciliation succeeds when difference is zero', () => {
@@ -1430,8 +1462,28 @@ describe('K: Reconciliation', () => {
     expect(history[0].statement_date).toBe('2025-06-30')
   })
 
-  it.skip('K7: matched/unmatched line tracking not implemented in MockApi', () => {
-    // MockApi reconciliation doesn't track individual cleared transactions
+  it('K7: unreconciled entries query returns only unmatched entries', () => {
+    const cash = find(mock, '1000')
+    const sales = find(mock, '4000')
+
+    // Two transactions
+    mock.createTransaction({ date: '2025-03-01', description: 'Sale 1', entries: [
+      { account_id: cash.id, debit: 50000, credit: 0 },
+      { account_id: sales.id, debit: 0, credit: 50000 },
+    ]})
+    mock.createTransaction({ date: '2025-07-01', description: 'Sale 2', entries: [
+      { account_id: cash.id, debit: 80000, credit: 0 },
+      { account_id: sales.id, debit: 0, credit: 80000 },
+    ]})
+
+    // Reconcile through June — only Sale 1 should be reconciled
+    const recId = mock.startReconciliation(cash.id, '2025-06-30', 50000)
+    mock.completeReconciliation(recId)
+
+    // Sale 2 (July) should still be unreconciled
+    const unrecon = mock.getUnreconciledEntries(cash.id)
+    expect(unrecon.length).toBe(1)
+    expect(unrecon[0].debit).toBe(80000)
   })
 })
 

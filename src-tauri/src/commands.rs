@@ -1083,6 +1083,29 @@ pub async fn create_account(
         return Err(format!("Account code '{}' already exists", code));
     }
 
+    // Check for circular parent reference
+    if let Some(ref pid) = parent_id {
+        let parent_exists: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM accounts WHERE id = ?1", params![pid], |row| row.get(0),
+        ).map_err(|e| e.to_string())?;
+        if !parent_exists {
+            return Err(format!("Parent account not found: {}", pid));
+        }
+        // Walk parent chain to detect cycle
+        let mut current = Some(pid.clone());
+        let mut depth = 0;
+        while let Some(ref cid) = current {
+            let next: Option<String> = conn.query_row(
+                "SELECT parent_id FROM accounts WHERE id = ?1", params![cid], |row| row.get(0),
+            ).unwrap_or(None);
+            current = next;
+            depth += 1;
+            if depth > 10 {
+                return Err("Circular parent reference detected".to_string());
+            }
+        }
+    }
+
     let id = Uuid::new_v4().to_string();
     let nb = if is_debit_normal(&acct_type) { "DEBIT" } else { "CREDIT" };
     let now = Utc::now().timestamp();
@@ -1232,6 +1255,17 @@ pub async fn enter_opening_balances(
         [],
         |row| row.get(0),
     ).map_err(|_| "Opening Balance Equity account not found".to_string())?;
+
+    // Remove any existing OPENING transaction (opening balances are a setup step)
+    let existing_opening: Option<String> = conn.query_row(
+        "SELECT id FROM transactions WHERE journal_type = 'OPENING' LIMIT 1",
+        [],
+        |row| row.get(0),
+    ).ok();
+    if let Some(ref old_tx_id) = existing_opening {
+        conn.execute("DELETE FROM journal_entries WHERE transaction_id = ?1", params![old_tx_id]).map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM transactions WHERE id = ?1", params![old_tx_id]).map_err(|e| e.to_string())?;
+    }
 
     let mut entries: Vec<(String, i64, i64)> = Vec::new(); // (account_id, debit, credit)
 
@@ -1433,7 +1467,48 @@ pub async fn complete_reconciliation(
             params![lock_id, statement_date, now],
         ).map_err(|e| e.to_string())?;
     }
+
+    // Mark all entries in the reconciled period + account as reconciled
+    conn.execute(
+        "UPDATE journal_entries SET is_reconciled = 1
+         WHERE account_id = ?1 AND transaction_id IN (
+             SELECT id FROM transactions WHERE date <= ?2
+         )",
+        params![account_id, statement_date],
+    ).map_err(|e| e.to_string())?;
+
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_unreconciled_entries(
+    db: State<'_, DbState>,
+    account_id: String,
+) -> Result<Vec<JournalEntryOutput>, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let mut stmt = conn.prepare(
+        "SELECT je.id, je.transaction_id, je.account_id, je.debit, je.credit, je.memo
+         FROM journal_entries je
+         WHERE je.account_id = ?1 AND COALESCE(je.is_reconciled, 0) = 0
+         ORDER BY je.id"
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(params![account_id], |row| {
+        Ok(JournalEntryOutput {
+            id: row.get(0)?,
+            transaction_id: row.get(1)?,
+            account_id: row.get(2)?,
+            debit: row.get(3)?,
+            credit: row.get(4)?,
+            memo: row.get(5)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows { result.push(row.map_err(|e| e.to_string())?); }
+    Ok(result)
 }
 
 // ── Phase 30: Bank Feed Pipeline ─────────────────────────
@@ -1988,9 +2063,7 @@ pub async fn close_fiscal_year(
         }
     }
 
-    if entries.is_empty() {
-        return Err("No revenue or expense balances to close".to_string());
-    }
+    // Zero-activity years are valid — create the closing entry even with no lines
 
     let net_income = total_revenue - total_expenses;
     if net_income > 0 {

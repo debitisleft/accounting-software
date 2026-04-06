@@ -239,6 +239,9 @@ export const api = {
   completeReconciliation: (accountId: string, statementDate: string) =>
     invoke<void>('complete_reconciliation', { accountId, statementDate }),
 
+  getUnreconciledEntries: (accountId: string) =>
+    invoke<{ id: string; transaction_id: string; account_id: string; debit: number; credit: number; memo: string | null }[]>('get_unreconciled_entries', { accountId }),
+
   importBankTransactions: (items: { date: string; description: string; amount: number; payee?: string; bank_ref?: string }[]) =>
     invoke<number>('import_bank_transactions', { items }),
 
