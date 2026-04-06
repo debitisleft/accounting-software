@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 22 Complete — working on Phase 23
+## STATUS: Phase 23 Complete — working on Phase 24
 
 ## CURRENT STATE (2026-04-05)
-- 22 phases complete, 163 tests passing
+- 23 phases complete, 165 tests passing
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,13 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 23 — Module Foundation (2026-04-05)
+- Added `modules` table to schema
+- Added `list_modules`, `get_module` Rust commands + MockApi + api.ts
+- Created `docs/api-contract.md` — full API surface documented with stability classifications
+- Module convention already in CLAUDE.md
+- 165 tests passing (2 new module tests)
 
 ### Phase 22 — Fiscal Year Close (2026-04-05)
 - Added `close_fiscal_year` command — zeroes revenue/expense, transfers net income to Retained Earnings

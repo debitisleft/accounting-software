@@ -133,29 +133,15 @@ See previous build-todo files for full history.
 ## PHASE 23 — Module Foundation
 **Goal:** Add the modules table and convention. Zero-cost prep for future plugin architecture.
 
-- [ ] Add `modules` table to schema:
-  ```sql
-  CREATE TABLE IF NOT EXISTS modules (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      version TEXT NOT NULL,
-      description TEXT,
-      table_prefix TEXT NOT NULL UNIQUE,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      installed_at INTEGER NOT NULL
-  );
-  ```
-- [ ] Add `list_modules`, `get_module` Rust commands
-- [ ] Add commands to api.ts + MockApi
-- [ ] Document public API surface: create a `docs/api-contract.md` listing all stable commands with parameters and return types
+- [x] Add `modules` table to schema
+- [x] Add `list_modules`, `get_module` Rust commands
+- [x] Add commands to api.ts + MockApi
+- [x] Document public API surface: create a `docs/api-contract.md` listing all stable commands with parameters and return types
   - Mark each command as: STABLE (module-safe), INTERNAL (may change), or SYSTEM (never call directly)
-- [ ] Add module convention to CLAUDE.md:
-  - Module tables use prefix: `mod_{module_name}_`
-  - Core engine tables never use the `mod_` prefix
-  - Module data lives inside each .sqlite file
-- [ ] Test: modules table exists in fresh database
-- [ ] Test: list_modules returns empty list on fresh database
-- [ ] CHECK: Modules table exists, convention documented, API contract written, all tests pass, `npm run check` clean
+- [x] Add module convention to CLAUDE.md (already present)
+- [x] Test: modules table exists in fresh database
+- [x] Test: list_modules returns empty list on fresh database
+- [x] CHECK: Modules table exists, convention documented, API contract written, all tests pass, `npm run check` clean
 
 ---
 
@@ -276,8 +262,8 @@ See previous build-todo files for full history.
 
 ---
 
-## CURRENT PHASE: 23
-## LAST COMPLETED CHECK: Phase 22 — fiscal year close, 163 tests pass (2026-04-05)
+## CURRENT PHASE: 24
+## LAST COMPLETED CHECK: Phase 23 — module foundation, 165 tests pass (2026-04-05)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)

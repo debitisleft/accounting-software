@@ -119,6 +119,16 @@ fn create_tables(conn: &Connection) -> Result<()> {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS modules (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            version TEXT NOT NULL,
+            description TEXT,
+            table_prefix TEXT NOT NULL UNIQUE,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            installed_at INTEGER NOT NULL
+        );
         "
     )?;
     Ok(())

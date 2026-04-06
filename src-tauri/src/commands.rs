@@ -1245,6 +1245,67 @@ pub async fn enter_opening_balances(
     }
 }
 
+// ── Phase 23: Module Foundation ──────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct Module {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub description: Option<String>,
+    pub table_prefix: String,
+    pub enabled: i64,
+    pub installed_at: i64,
+}
+
+#[tauri::command]
+pub async fn list_modules(db: State<'_, DbState>) -> Result<Vec<Module>, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let mut stmt = conn.prepare(
+        "SELECT id, name, version, description, table_prefix, enabled, installed_at FROM modules ORDER BY name"
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(Module {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            version: row.get(2)?,
+            description: row.get(3)?,
+            table_prefix: row.get(4)?,
+            enabled: row.get(5)?,
+            installed_at: row.get(6)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut modules = Vec::new();
+    for row in rows {
+        modules.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(modules)
+}
+
+#[tauri::command]
+pub async fn get_module(db: State<'_, DbState>, module_id: String) -> Result<Module, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    conn.query_row(
+        "SELECT id, name, version, description, table_prefix, enabled, installed_at FROM modules WHERE id = ?1",
+        params![module_id],
+        |row| Ok(Module {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            version: row.get(2)?,
+            description: row.get(3)?,
+            table_prefix: row.get(4)?,
+            enabled: row.get(5)?,
+            installed_at: row.get(6)?,
+        }),
+    ).map_err(|_| format!("Module not found: {}", module_id))
+}
+
 // ── Phase 22: Fiscal Year Close ──────────────────────────
 
 #[derive(Debug, Serialize)]

@@ -226,6 +226,12 @@ export const api = {
   enterOpeningBalances: (balances: { account_id: string; balance: number }[], effectiveDate: string) =>
     invoke<string>('enter_opening_balances', { balances, effectiveDate }),
 
+  listModules: () =>
+    invoke<{ id: string; name: string; version: string; description: string | null; table_prefix: string; enabled: number; installed_at: number }[]>('list_modules'),
+
+  getModule: (moduleId: string) =>
+    invoke<{ id: string; name: string; version: string; description: string | null; table_prefix: string; enabled: number; installed_at: number }>('get_module', { moduleId }),
+
   closeFiscalYear: (fiscalYearEndDate: string) =>
     invoke<{ transaction_id: string; net_income: number }>('close_fiscal_year', { fiscalYearEndDate }),
 

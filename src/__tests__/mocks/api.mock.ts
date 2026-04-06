@@ -87,6 +87,7 @@ export class MockApi {
     currency_symbol: '$',
     date_format: 'YYYY-MM-DD',
   }
+  modules: { id: string; name: string; version: string; description: string | null; table_prefix: string; enabled: number; installed_at: number }[] = []
   recentFiles: RecentFile[] = []
   fileOpen = false
   currentPath: string | null = null
@@ -154,6 +155,7 @@ export class MockApi {
     this.auditLog = []
     this.lockPeriods = []
     this.globalLocks = []
+    this.modules = []
     this.settings = {
       company_name: 'My Company',
       fiscal_year_start_month: '1',
@@ -1030,6 +1032,16 @@ export class MockApi {
         return { transaction_id: t.id, date: t.date, net_income: netIncome }
       })
       .sort((a, b) => b.date.localeCompare(a.date))
+  }
+
+  listModules(): typeof this.modules {
+    return this.modules.slice().sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  getModule(moduleId: string): typeof this.modules[0] {
+    const mod_ = this.modules.find((m) => m.id === moduleId)
+    if (!mod_) throw new Error(`Module not found: ${moduleId}`)
+    return { ...mod_ }
   }
 
   getDashboardSummary(): DashboardSummary {
