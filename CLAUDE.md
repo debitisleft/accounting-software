@@ -11,8 +11,12 @@ Stack: Tauri + React + TypeScript + rusqlite (SQLite on disk) + Vitest
 - Run tests before every commit
 - Never commit code that breaks passing tests
 - Never delete financial data — edits create audit log entries, "deletes" are voids (reversing entries)
-- Period locks are hard — no Rust command may modify transactions in a locked period, regardless of what the UI sends
+- Period locks are hard — no Rust command may create, modify, or void transactions in a locked period
 - Standard `.sqlite` format only — no proprietary extensions, no encryption barriers, no lock-in
+- System accounts (Retained Earnings, Opening Balance Equity) cannot be deactivated or deleted
+- Voided transactions are immutable — cannot be edited after voiding
+- Reversing entries cannot be voided (no void-of-void chains)
+- Deactivated accounts cannot receive new transactions
 
 ## DATA OWNERSHIP PRINCIPLE
 This app is built on radical data ownership. The user's financial data belongs to them, not to the app.
@@ -48,6 +52,49 @@ Do NOT skip any of these. If a Rust command exists without a MockApi method, tes
 - Every command must guard: return error if no file is open
 - Recent files tracked in `{app_data_dir}/recent-files.json` (app-level, not per-file)
 - Settings (company name, currency, etc.) stored inside each `.sqlite` file
+
+## JOURNAL TYPES (Phase 20+)
+- GENERAL — regular day-to-day entries (user-created)
+- ADJUSTING — end-of-period accruals, deferrals (user-created)
+- CLOSING — year-end revenue/expense → retained earnings (system-generated only)
+- REVERSING — auto-reverse of adjusting entry (system-generated only)
+- OPENING — opening balances (system-generated only)
+- Users can only create GENERAL and ADJUSTING entries manually
+
+## MODULE CONVENTION (Phase 23+)
+- Module tables use prefix: `mod_{module_name}_` (e.g., mod_invoicing_invoices)
+- Modules register in the `modules` table
+- Module data lives inside each .sqlite file (same data ownership principle)
+- Core engine tables never use the `mod_` prefix
+
+## DIMENSIONS (Phase 32+)
+Dimensions are user-defined tags for transaction lines: class, location, project, department, or any custom type.
+- Dimensions attach to LINES, not transactions — a split transaction can tag different lines differently
+- Schema: `dimensions` table (id, type, name, code, parent_id, is_active) + `transaction_line_dimensions` junction table
+- UNIQUE(type, name) — no duplicate dimension values within a type
+- Dimensions support hierarchy via parent_id (same type only)
+- Filtering logic: multiple values of the SAME type = OR; different types = AND
+- All reports (trial balance, income statement, balance sheet, cash flow, general ledger) accept optional dimension filters
+- Deactivated dimensions cannot be assigned to new lines but existing data is preserved
+- Cannot delete a dimension that has transaction line references
+
+## CONTACTS (Phase 33+)
+Contacts (customers, vendors, employees) are kernel-level entities, not a module.
+- Contacts attach to TRANSACTIONS (not lines) — one primary contact per transaction
+- Schema: `contacts` table (id, type, name, company_name, email, phone, address fields, tax_id, notes, is_active) + `transaction_contacts` junction table
+- Contact types: CUSTOMER, VENDOR, EMPLOYEE, OTHER
+- Contact ledger: all transactions linked to a contact with running balance — this is the vendor/customer ledger
+- All reports accept optional contact_id filter, composable with dimension filters (AND logic)
+- Cannot delete a contact with transaction references — deactivate instead
+- tax_id is stored for 1099 prep, displayed masked in UI
+
+## DOCUMENT ATTACHMENTS (Phase 35+)
+Binary files (receipts, invoices, source documents) attached to transactions, contacts, or accounts.
+- Files stored on filesystem, NOT in SQLite — metadata only in the database
+- Directory: `{company_file}_documents/{YYYY}/{MM}/{stored_filename}` — sibling to the .sqlite file
+- stored_filename is UUID-based to avoid collisions; original filename preserved in metadata
+- Schema: `documents` table (id, entity_type, entity_id, filename, stored_filename, mime_type, file_size_bytes, description, uploaded_at)
+- Documents CAN be truly deleted (they are supporting evidence, not financial data)
 
 ## MIGRATION PATTERN
 Schema changes use raw SQL in db.rs init_db():

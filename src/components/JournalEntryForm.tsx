@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { api, type Account } from '../lib/api'
+import { api, type Account, type Dimension } from '../lib/api'
 
 interface EntryRow {
   accountId: string
   debitDollars: string
   creditDollars: string
   memo: string
+  dimensionIds: string[]
 }
 
 const emptyRow = (): EntryRow => ({
@@ -13,6 +14,7 @@ const emptyRow = (): EntryRow => ({
   debitDollars: '',
   creditDollars: '',
   memo: '',
+  dimensionIds: [],
 })
 
 /** Converts dollar string to integer cents using Math.round */
@@ -35,9 +37,15 @@ export function JournalEntryForm({
   const [rows, setRows] = useState<EntryRow[]>([emptyRow(), emptyRow()])
   const [saveMessage, setSaveMessage] = useState('')
   const [accountList, setAccountList] = useState<Account[]>([])
+  const [dimensionList, setDimensionList] = useState<Dimension[]>([])
+  const [dimTypes, setDimTypes] = useState<string[]>([])
 
   useEffect(() => {
     api.getAccounts().then(setAccountList).catch(() => {})
+    api.listDimensions().then((dims) => {
+      setDimensionList(dims.filter((d) => d.is_active === 1))
+      setDimTypes([...new Set(dims.filter((d) => d.is_active === 1).map((d) => d.type))])
+    }).catch(() => {})
   }, [version])
 
   const totalDebit = rows.reduce((sum, r) => sum + dollarsToCents(r.debitDollars), 0)
@@ -52,6 +60,21 @@ export function JournalEntryForm({
 
   const updateRow = (index: number, field: keyof EntryRow, value: string) => {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)))
+  }
+
+  const toggleDimension = (rowIndex: number, dimId: string) => {
+    setRows((prev) =>
+      prev.map((r, i) =>
+        i === rowIndex
+          ? {
+              ...r,
+              dimensionIds: r.dimensionIds.includes(dimId)
+                ? r.dimensionIds.filter((id) => id !== dimId)
+                : [...r.dimensionIds, dimId],
+            }
+          : r,
+      ),
+    )
   }
 
   const addRow = () => setRows((prev) => [...prev, emptyRow()])
@@ -73,12 +96,23 @@ export function JournalEntryForm({
         memo: r.memo || undefined,
       }))
 
+    // Build dimension assignments
+    const dimAssignments: { line_index: number; dimension_id: string }[] = []
+    rows.forEach((r, i) => {
+      if (r.accountId !== '') {
+        for (const dimId of r.dimensionIds) {
+          dimAssignments.push({ line_index: i, dimension_id: dimId })
+        }
+      }
+    })
+
     try {
       const txId = await api.createTransaction({
         date,
         description: description.trim(),
         journal_type: journalType,
         entries,
+        dimensions: dimAssignments.length > 0 ? dimAssignments : undefined,
       })
       setSaveMessage(`Transaction ${txId.slice(0, 8)}... saved!`)
       setDescription('')
@@ -141,6 +175,7 @@ export function JournalEntryForm({
             <th style={{ textAlign: 'right', padding: '8px' }}>Debit ($)</th>
             <th style={{ textAlign: 'right', padding: '8px' }}>Credit ($)</th>
             <th style={{ textAlign: 'left', padding: '8px' }}>Memo</th>
+            {dimTypes.length > 0 && <th style={{ textAlign: 'left', padding: '8px' }}>Dimensions</th>}
             <th style={{ padding: '8px' }}></th>
           </tr>
         </thead>
@@ -192,6 +227,33 @@ export function JournalEntryForm({
                   style={{ width: '120px', padding: '4px' }}
                 />
               </td>
+              {dimTypes.length > 0 && (
+                <td style={{ padding: '4px 8px' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
+                    {dimensionList.map((dim) => {
+                      const selected = row.dimensionIds.includes(dim.id)
+                      return (
+                        <button
+                          key={dim.id}
+                          onClick={() => toggleDimension(i, dim.id)}
+                          title={`${dim.type}: ${dim.name}`}
+                          style={{
+                            fontSize: '10px',
+                            padding: '2px 6px',
+                            borderRadius: '10px',
+                            border: selected ? '1px solid #1976d2' : '1px solid #ccc',
+                            backgroundColor: selected ? '#e3f2fd' : '#f5f5f5',
+                            color: selected ? '#1976d2' : '#666',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {dim.code || dim.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </td>
+              )}
               <td style={{ padding: '4px 8px' }}>
                 {rows.length > 2 && (
                   <button onClick={() => removeRow(i)} style={{ padding: '2px 8px' }}>
@@ -215,7 +277,7 @@ export function JournalEntryForm({
             <td style={{ padding: '8px', textAlign: 'right', fontFamily: 'monospace' }}>
               {(totalCredit / 100).toFixed(2)}
             </td>
-            <td colSpan={2}></td>
+            <td colSpan={dimTypes.length > 0 ? 3 : 2}></td>
           </tr>
         </tfoot>
       </table>

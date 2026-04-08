@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 31 Complete + Audit V2 fixes — all planned phases done
+## STATUS: Phase 32 Complete — Dimensions/Tags Engine
 
-## CURRENT STATE (2026-04-06)
-- 31 phases complete, 296 tests passing (194 existing + 103 audit v2 − 1 skipped)
+## CURRENT STATE (2026-04-07)
+- 32 phases complete, 313 tests passing (296 existing + 17 dimensions − 1 skipped)
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,23 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 32 — Dimensions/Tags Engine (2026-04-07)
+- Added `dimensions` table (type, name, code, parent_id, is_active) with UNIQUE(type, name)
+- Added `transaction_line_dimensions` junction table linking journal entries to dimensions
+- 5 Rust commands: create_dimension, update_dimension, list_dimensions, list_dimension_types, delete_dimension
+- get_transaction_dimensions returns dimension tags per line
+- Updated create_transaction to accept optional dimensions array (line_index + dimension_id)
+- Updated updateTransactionLines to handle dimension reassignment
+- Dimension validation: unique type+name, parent same type, circular reference prevention, active check
+- MockApi: full dimension support including createTransactionWithDimensions
+- MockApi report filtering: getTrialBalanceWithDimensions, getIncomeStatementWithDimensions, getBalanceSheetWithDimensions
+- Filtering logic: same type = OR, different types = AND
+- DimensionsPage.tsx: full CRUD, hierarchical display, type filtering, create with parent
+- JournalEntryForm: dimension chip picker per line item
+- DimensionFilterBar.tsx: reusable filter component for reports
+- 17 new tests covering CRUD, hierarchy, transaction tagging, report filtering (TB + IS), AND/OR logic, inactive/delete protection
+- 313 tests passing (1 skipped)
 
 ### Engine Audit V2 Bug Fixes (2026-04-06)
 - Fixed: Opening balances wizard now replaces previous opening balances instead of doubling

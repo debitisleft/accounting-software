@@ -201,6 +201,31 @@ export interface DashboardSummary {
   recent_transactions: TransactionWithEntries[]
 }
 
+// ── Dimension Types (Phase 32) ──────────────────────────
+
+export interface Dimension {
+  id: string
+  type: string
+  name: string
+  code: string | null
+  parent_id: string | null
+  is_active: number
+  created_at: string
+  depth: number
+}
+
+export interface LineDimension {
+  transaction_line_id: string
+  dimension_id: string
+  dimension_type: string
+  dimension_name: string
+}
+
+export interface DimensionFilter {
+  type: string
+  dimension_id: string
+}
+
 // ── API — the ONLY place invoke() is called ──────────────
 
 export const api = {
@@ -304,8 +329,12 @@ export const api = {
     reference?: string
     journal_type?: string
     entries: JournalEntryInput[]
+    dimensions?: { line_index: number; dimension_id: string }[]
   }) =>
-    invoke<string>('create_transaction', data),
+    invoke<string>('create_transaction', {
+      ...data,
+      dimensions: data.dimensions ?? null,
+    }),
 
   getAccountBalance: (accountId: string, asOfDate?: string) =>
     invoke<number>('get_account_balance', {
@@ -484,4 +513,34 @@ export const api = {
       offset: options?.offset ?? null,
       limit: options?.limit ?? null,
     }),
+
+  // Phase 32: Dimensions
+  createDimension: (data: { dimType: string; name: string; code?: string; parentId?: string }) =>
+    invoke<string>('create_dimension', {
+      dimType: data.dimType,
+      name: data.name,
+      code: data.code ?? null,
+      parentId: data.parentId ?? null,
+    }),
+
+  updateDimension: (id: string, data: { name?: string; code?: string; parentId?: string; isActive?: number }) =>
+    invoke<void>('update_dimension', {
+      id,
+      name: data.name ?? null,
+      code: data.code ?? null,
+      parentId: data.parentId ?? null,
+      isActive: data.isActive ?? null,
+    }),
+
+  listDimensions: (dimType?: string) =>
+    invoke<Dimension[]>('list_dimensions', { dimType: dimType ?? null }),
+
+  listDimensionTypes: () =>
+    invoke<string[]>('list_dimension_types'),
+
+  deleteDimension: (id: string) =>
+    invoke<void>('delete_dimension', { id }),
+
+  getTransactionDimensions: (transactionId: string) =>
+    invoke<LineDimension[]>('get_transaction_dimensions', { transactionId }),
 }

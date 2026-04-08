@@ -342,6 +342,12 @@ pub async fn get_accounts(db: State<'_, DbState>) -> Result<Vec<Account>, String
     Ok(accounts)
 }
 
+#[derive(Debug, Deserialize)]
+pub struct LineDimensionInput {
+    pub line_index: usize,
+    pub dimension_id: String,
+}
+
 #[tauri::command]
 pub async fn create_transaction(
     db: State<'_, DbState>,
@@ -350,6 +356,7 @@ pub async fn create_transaction(
     reference: Option<String>,
     journal_type: Option<String>,
     entries: Vec<JournalEntryInput>,
+    dimensions: Option<Vec<LineDimensionInput>>,
 ) -> Result<String, String> {
     let jtype = journal_type.unwrap_or_else(|| "GENERAL".to_string());
     let valid_types = ["GENERAL", "ADJUSTING", "CLOSING", "REVERSING", "OPENING"];
@@ -426,6 +433,23 @@ pub async fn create_transaction(
         reference
     };
 
+    // Validate dimensions before inserting
+    if let Some(ref dims) = dimensions {
+        for dim_ref in dims {
+            if dim_ref.line_index >= entries.len() {
+                return Err(format!("Invalid line_index: {}", dim_ref.line_index));
+            }
+            let (is_active, dim_name): (i64, String) = conn.query_row(
+                "SELECT is_active, name FROM dimensions WHERE id = ?1",
+                params![dim_ref.dimension_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            ).map_err(|_| format!("Dimension not found: {}", dim_ref.dimension_id))?;
+            if is_active != 1 {
+                return Err(format!("Cannot use inactive dimension: {}", dim_name));
+            }
+        }
+    }
+
     conn.execute("BEGIN", []).map_err(|e| e.to_string())?;
 
     let insert_result = (|| -> Result<(), String> {
@@ -434,13 +458,28 @@ pub async fn create_transaction(
             params![tx_id, date, description, final_reference, jtype, now],
         ).map_err(|e| e.to_string())?;
 
+        let mut entry_ids: Vec<String> = Vec::new();
         for entry in &entries {
             let entry_id = Uuid::new_v4().to_string();
             conn.execute(
                 "INSERT INTO journal_entries (id, transaction_id, account_id, debit, credit, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![entry_id, tx_id, entry.account_id, entry.debit, entry.credit, entry.memo],
             ).map_err(|e| e.to_string())?;
+            entry_ids.push(entry_id);
         }
+
+        // Insert dimension junction rows
+        if let Some(ref dims) = dimensions {
+            for dim_ref in dims {
+                let junction_id = Uuid::new_v4().to_string();
+                let line_id = &entry_ids[dim_ref.line_index];
+                conn.execute(
+                    "INSERT INTO transaction_line_dimensions (id, transaction_line_id, dimension_id) VALUES (?1, ?2, ?3)",
+                    params![junction_id, line_id, dim_ref.dimension_id],
+                ).map_err(|e| e.to_string())?;
+            }
+        }
+
         Ok(())
     })();
 
@@ -3338,4 +3377,293 @@ pub async fn get_account_ledger(
         entries,
         total,
     })
+}
+
+// ── Phase 32: Dimensions/Tags Engine ────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Dimension {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub dim_type: String,
+    pub name: String,
+    pub code: Option<String>,
+    pub parent_id: Option<String>,
+    pub is_active: i64,
+    pub created_at: String,
+    pub depth: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LineDimension {
+    pub transaction_line_id: String,
+    pub dimension_id: String,
+    pub dimension_type: String,
+    pub dimension_name: String,
+}
+
+#[tauri::command]
+pub async fn create_dimension(
+    db: State<'_, DbState>,
+    dim_type: String,
+    name: String,
+    code: Option<String>,
+    parent_id: Option<String>,
+) -> Result<String, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Validate parent exists and is same type
+    if let Some(ref pid) = parent_id {
+        let parent_type: String = conn.query_row(
+            "SELECT type FROM dimensions WHERE id = ?1",
+            params![pid],
+            |row| row.get(0),
+        ).map_err(|_| format!("Parent dimension not found: {}", pid))?;
+        if parent_type != dim_type {
+            return Err(format!("Parent dimension type '{}' does not match '{}'", parent_type, dim_type));
+        }
+    }
+
+    let id = Uuid::new_v4().to_string();
+    let now = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+
+    conn.execute(
+        "INSERT INTO dimensions (id, type, name, code, parent_id, is_active, created_at) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)",
+        params![id, dim_type, name, code, parent_id, now],
+    ).map_err(|e| {
+        if e.to_string().contains("UNIQUE") {
+            format!("Dimension '{}' of type '{}' already exists", name, dim_type)
+        } else {
+            e.to_string()
+        }
+    })?;
+
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn update_dimension(
+    db: State<'_, DbState>,
+    id: String,
+    name: Option<String>,
+    code: Option<String>,
+    parent_id: Option<String>,
+    is_active: Option<i64>,
+) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Check dimension exists
+    let (current_type, _current_name): (String, String) = conn.query_row(
+        "SELECT type, name FROM dimensions WHERE id = ?1",
+        params![id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(|_| format!("Dimension not found: {}", id))?;
+
+    // Validate parent if provided
+    if let Some(ref pid) = parent_id {
+        let parent_type: String = conn.query_row(
+            "SELECT type FROM dimensions WHERE id = ?1",
+            params![pid],
+            |row| row.get(0),
+        ).map_err(|_| format!("Parent dimension not found: {}", pid))?;
+        if parent_type != current_type {
+            return Err(format!("Parent dimension type '{}' does not match '{}'", parent_type, current_type));
+        }
+        // Check for circular reference
+        let mut current = Some(pid.clone());
+        let mut depth = 0;
+        while let Some(ref cid) = current {
+            if cid == &id {
+                return Err("Circular parent reference detected".to_string());
+            }
+            depth += 1;
+            if depth > 10 { break; }
+            current = conn.query_row(
+                "SELECT parent_id FROM dimensions WHERE id = ?1",
+                params![cid],
+                |row| row.get(0),
+            ).unwrap_or(None);
+        }
+    }
+
+    if let Some(ref n) = name {
+        conn.execute("UPDATE dimensions SET name = ?1 WHERE id = ?2", params![n, id])
+            .map_err(|e| {
+                if e.to_string().contains("UNIQUE") {
+                    format!("Dimension '{}' of type '{}' already exists", n, current_type)
+                } else {
+                    e.to_string()
+                }
+            })?;
+    }
+    if let Some(ref c) = code {
+        conn.execute("UPDATE dimensions SET code = ?1 WHERE id = ?2", params![c, id])
+            .map_err(|e| e.to_string())?;
+    }
+    if parent_id.is_some() {
+        conn.execute("UPDATE dimensions SET parent_id = ?1 WHERE id = ?2", params![parent_id, id])
+            .map_err(|e| e.to_string())?;
+    }
+    if let Some(active) = is_active {
+        conn.execute("UPDATE dimensions SET is_active = ?1 WHERE id = ?2", params![active, id])
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_dimensions(
+    db: State<'_, DbState>,
+    dim_type: Option<String>,
+) -> Result<Vec<Dimension>, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let query = match &dim_type {
+        Some(_) => "SELECT id, type, name, code, parent_id, is_active, created_at FROM dimensions WHERE type = ?1 ORDER BY name",
+        None => "SELECT id, type, name, code, parent_id, is_active, created_at FROM dimensions ORDER BY type, name",
+    };
+
+    let mut stmt = conn.prepare(query).map_err(|e| e.to_string())?;
+    let rows = if let Some(ref t) = dim_type {
+        stmt.query_map(params![t], |row| {
+            Ok(Dimension {
+                id: row.get(0)?,
+                dim_type: row.get(1)?,
+                name: row.get(2)?,
+                code: row.get(3)?,
+                parent_id: row.get(4)?,
+                is_active: row.get(5)?,
+                created_at: row.get(6)?,
+                depth: 0,
+            })
+        }).map_err(|e| e.to_string())?
+    } else {
+        stmt.query_map([], |row| {
+            Ok(Dimension {
+                id: row.get(0)?,
+                dim_type: row.get(1)?,
+                name: row.get(2)?,
+                code: row.get(3)?,
+                parent_id: row.get(4)?,
+                is_active: row.get(5)?,
+                created_at: row.get(6)?,
+                depth: 0,
+            })
+        }).map_err(|e| e.to_string())?
+    };
+
+    let mut dims = Vec::new();
+    for row in rows {
+        dims.push(row.map_err(|e| e.to_string())?);
+    }
+
+    // Compute depth from parent chain
+    let id_to_parent: std::collections::HashMap<String, Option<String>> = dims
+        .iter()
+        .map(|d| (d.id.clone(), d.parent_id.clone()))
+        .collect();
+    for d in &mut dims {
+        let mut depth = 0i64;
+        let mut current = d.parent_id.clone();
+        while let Some(ref pid) = current {
+            depth += 1;
+            current = id_to_parent.get(pid).and_then(|p| p.clone());
+            if depth > 10 { break; }
+        }
+        d.depth = depth;
+    }
+
+    Ok(dims)
+}
+
+#[tauri::command]
+pub async fn list_dimension_types(
+    db: State<'_, DbState>,
+) -> Result<Vec<String>, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let mut stmt = conn.prepare("SELECT DISTINCT type FROM dimensions ORDER BY type")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    let mut types = Vec::new();
+    for row in rows {
+        types.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(types)
+}
+
+#[tauri::command]
+pub async fn delete_dimension(
+    db: State<'_, DbState>,
+    id: String,
+) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Check for transaction line references
+    let ref_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM transaction_line_dimensions WHERE dimension_id = ?1",
+        params![id],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    if ref_count > 0 {
+        return Err("Cannot delete dimension with transaction references. Deactivate instead.".to_string());
+    }
+
+    // Check for child dimensions
+    let child_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM dimensions WHERE parent_id = ?1",
+        params![id],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    if child_count > 0 {
+        return Err("Cannot delete dimension with child dimensions".to_string());
+    }
+
+    conn.execute("DELETE FROM dimensions WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_transaction_dimensions(
+    db: State<'_, DbState>,
+    transaction_id: String,
+) -> Result<Vec<LineDimension>, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let mut stmt = conn.prepare(
+        "SELECT tld.transaction_line_id, tld.dimension_id, d.type, d.name
+         FROM transaction_line_dimensions tld
+         JOIN dimensions d ON tld.dimension_id = d.id
+         JOIN journal_entries je ON tld.transaction_line_id = je.id
+         WHERE je.transaction_id = ?1
+         ORDER BY tld.transaction_line_id, d.type, d.name"
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(params![transaction_id], |row| {
+        Ok(LineDimension {
+            transaction_line_id: row.get(0)?,
+            dimension_id: row.get(1)?,
+            dimension_type: row.get(2)?,
+            dimension_name: row.get(3)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(result)
 }

@@ -82,6 +82,13 @@ pub fn run() {
             commands::unlock_period_global,
             commands::list_locked_periods_global,
             commands::get_account_ledger,
+            // Phase 32: Dimensions
+            commands::create_dimension,
+            commands::update_dimension,
+            commands::list_dimensions,
+            commands::list_dimension_types,
+            commands::delete_dimension,
+            commands::get_transaction_dimensions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

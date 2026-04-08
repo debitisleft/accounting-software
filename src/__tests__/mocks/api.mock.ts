@@ -27,6 +27,9 @@ import type {
   FileInfo,
   RecentFile,
   LockedPeriod,
+  Dimension,
+  LineDimension,
+  DimensionFilter,
 } from '../../lib/api'
 
 interface StoredTransaction {
@@ -99,6 +102,8 @@ export class MockApi {
     last_generated: string | null; is_paused: number; entries: { account_id: string; debit: number; credit: number; memo?: string }[];
     created_at: number
   }[] = []
+  dimensions: Dimension[] = []
+  lineDimensions: { id: string; transaction_line_id: string; dimension_id: string }[] = []
   recentFiles: RecentFile[] = []
   fileOpen = false
   currentPath: string | null = null
@@ -170,6 +175,8 @@ export class MockApi {
     this.pendingBankTxs = []
     this.reconciliations = []
     this.recurringTemplates = []
+    this.dimensions = []
+    this.lineDimensions = []
     this.settings = {
       company_name: 'My Company',
       fiscal_year_start_month: '1',
@@ -565,7 +572,7 @@ export class MockApi {
     }
   }
 
-  updateTransactionLines(transactionId: string, newEntries: JournalEntryInput[]): void {
+  updateTransactionLines(transactionId: string, newEntries: JournalEntryInput[], dimensions?: { line_index: number; dimension_id: string }[]): void {
     if (this.isTransactionLocked(transactionId)) {
       throw new Error('Cannot edit: transaction is in a locked period')
     }
@@ -580,9 +587,25 @@ export class MockApi {
     }
     if (totalDebit === 0) throw new Error('Transaction must have non-zero amounts')
 
+    // Validate dimensions
+    if (dimensions) {
+      for (const dimRef of dimensions) {
+        const dim = this.dimensions.find((d) => d.id === dimRef.dimension_id)
+        if (!dim) throw new Error(`Dimension not found: ${dimRef.dimension_id}`)
+        if (dim.is_active !== 1) throw new Error(`Cannot use inactive dimension: ${dim.name}`)
+        if (dimRef.line_index < 0 || dimRef.line_index >= newEntries.length) {
+          throw new Error(`Invalid line_index: ${dimRef.line_index}`)
+        }
+      }
+    }
+
     const oldEntries = this.entries.filter((e) => e.transaction_id === transactionId)
     const oldStr = oldEntries.map((e) => `${e.account_id}:D${e.debit}C${e.credit}`).join(';')
     const newStr = newEntries.map((e) => `${e.account_id}:D${e.debit}C${e.credit}`).join(';')
+
+    // Remove old dimensions for old entries
+    const oldEntryIds = new Set(oldEntries.map((e) => e.id))
+    this.lineDimensions = this.lineDimensions.filter((ld) => !oldEntryIds.has(ld.transaction_line_id))
 
     this.entries = this.entries.filter((e) => e.transaction_id !== transactionId)
     for (const entry of newEntries) {
@@ -596,6 +619,20 @@ export class MockApi {
         is_reconciled: 0,
       })
     }
+
+    // Add new dimensions
+    if (dimensions) {
+      const txEntries = this.entries.filter((e) => e.transaction_id === transactionId)
+      for (const dimRef of dimensions) {
+        const lineId = txEntries[dimRef.line_index].id
+        this.lineDimensions.push({
+          id: this.genId(),
+          transaction_line_id: lineId,
+          dimension_id: dimRef.dimension_id,
+        })
+      }
+    }
+
     this.writeAuditLog(transactionId, 'lines', oldStr, newStr)
   }
 
@@ -1541,6 +1578,370 @@ export class MockApi {
       net_income: is.net_income,
       transaction_count: this.transactions.length,
       recent_transactions: recentTxs,
+    }
+  }
+  // ── Phase 32: Dimensions ────────────────────────────────
+
+  createDimension(data: { dimType: string; name: string; code?: string; parentId?: string }): string {
+    this.guardFileOpen()
+    // Check unique(type, name)
+    if (this.dimensions.some((d) => d.type === data.dimType && d.name === data.name)) {
+      throw new Error(`Dimension '${data.name}' of type '${data.dimType}' already exists`)
+    }
+    // Validate parent
+    if (data.parentId) {
+      const parent = this.dimensions.find((d) => d.id === data.parentId)
+      if (!parent) throw new Error(`Parent dimension not found: ${data.parentId}`)
+      if (parent.type !== data.dimType) {
+        throw new Error(`Parent dimension type '${parent.type}' does not match '${data.dimType}'`)
+      }
+    }
+    const id = this.genId()
+    this.dimensions.push({
+      id,
+      type: data.dimType,
+      name: data.name,
+      code: data.code ?? null,
+      parent_id: data.parentId ?? null,
+      is_active: 1,
+      created_at: new Date().toISOString(),
+      depth: 0,
+    })
+    return id
+  }
+
+  updateDimension(id: string, data: { name?: string; code?: string; parentId?: string; isActive?: number }): void {
+    this.guardFileOpen()
+    const dim = this.dimensions.find((d) => d.id === id)
+    if (!dim) throw new Error(`Dimension not found: ${id}`)
+
+    if (data.parentId !== undefined) {
+      const parent = this.dimensions.find((d) => d.id === data.parentId)
+      if (!parent) throw new Error(`Parent dimension not found: ${data.parentId}`)
+      if (parent.type !== dim.type) {
+        throw new Error(`Parent dimension type '${parent.type}' does not match '${dim.type}'`)
+      }
+      // Check circular
+      let current: string | null = data.parentId!
+      let depth = 0
+      while (current) {
+        if (current === id) throw new Error('Circular parent reference detected')
+        depth++
+        if (depth > 10) break
+        const p = this.dimensions.find((d) => d.id === current)
+        current = p?.parent_id ?? null
+      }
+      dim.parent_id = data.parentId!
+    }
+    if (data.name !== undefined) {
+      // Check unique
+      if (this.dimensions.some((d) => d.id !== id && d.type === dim.type && d.name === data.name)) {
+        throw new Error(`Dimension '${data.name}' of type '${dim.type}' already exists`)
+      }
+      dim.name = data.name
+    }
+    if (data.code !== undefined) dim.code = data.code
+    if (data.isActive !== undefined) dim.is_active = data.isActive
+  }
+
+  listDimensions(dimType?: string): Dimension[] {
+    this.guardFileOpen()
+    let dims = dimType
+      ? this.dimensions.filter((d) => d.type === dimType)
+      : [...this.dimensions]
+
+    // Compute depth
+    const idToParent = new Map(this.dimensions.map((d) => [d.id, d.parent_id]))
+    for (const d of dims) {
+      let depth = 0
+      let current = d.parent_id
+      while (current) {
+        depth++
+        current = idToParent.get(current) ?? null
+        if (depth > 10) break
+      }
+      d.depth = depth
+    }
+
+    return dims.sort((a, b) => {
+      if (a.type !== b.type) return a.type.localeCompare(b.type)
+      return a.name.localeCompare(b.name)
+    })
+  }
+
+  listDimensionTypes(): string[] {
+    this.guardFileOpen()
+    return [...new Set(this.dimensions.map((d) => d.type))].sort()
+  }
+
+  deleteDimension(id: string): void {
+    this.guardFileOpen()
+    // Check references
+    if (this.lineDimensions.some((ld) => ld.dimension_id === id)) {
+      throw new Error('Cannot delete dimension with transaction references. Deactivate instead.')
+    }
+    // Check children
+    if (this.dimensions.some((d) => d.parent_id === id)) {
+      throw new Error('Cannot delete dimension with child dimensions')
+    }
+    this.dimensions = this.dimensions.filter((d) => d.id !== id)
+  }
+
+  getTransactionDimensions(transactionId: string): LineDimension[] {
+    this.guardFileOpen()
+    const lineIds = new Set(
+      this.entries.filter((e) => e.transaction_id === transactionId).map((e) => e.id),
+    )
+    return this.lineDimensions
+      .filter((ld) => lineIds.has(ld.transaction_line_id))
+      .map((ld) => {
+        const dim = this.dimensions.find((d) => d.id === ld.dimension_id)!
+        return {
+          transaction_line_id: ld.transaction_line_id,
+          dimension_id: ld.dimension_id,
+          dimension_type: dim.type,
+          dimension_name: dim.name,
+        }
+      })
+      .sort((a, b) => {
+        if (a.transaction_line_id !== b.transaction_line_id) return a.transaction_line_id.localeCompare(b.transaction_line_id)
+        if (a.dimension_type !== b.dimension_type) return a.dimension_type.localeCompare(b.dimension_type)
+        return a.dimension_name.localeCompare(b.dimension_name)
+      })
+  }
+
+  createTransactionWithDimensions(data: {
+    date: string
+    description: string
+    reference?: string
+    journal_type?: string
+    entries: JournalEntryInput[]
+    dimensions?: { line_index: number; dimension_id: string }[]
+  }): string {
+    // Validate dimensions before creating
+    if (data.dimensions) {
+      for (const dimRef of data.dimensions) {
+        const dim = this.dimensions.find((d) => d.id === dimRef.dimension_id)
+        if (!dim) throw new Error(`Dimension not found: ${dimRef.dimension_id}`)
+        if (dim.is_active !== 1) throw new Error(`Cannot use inactive dimension: ${dim.name}`)
+        if (dimRef.line_index < 0 || dimRef.line_index >= data.entries.length) {
+          throw new Error(`Invalid line_index: ${dimRef.line_index}`)
+        }
+      }
+    }
+
+    const txId = this.createTransaction(data)
+
+    // Now attach dimensions to lines
+    if (data.dimensions) {
+      const txEntries = this.entries.filter((e) => e.transaction_id === txId)
+      for (const dimRef of data.dimensions) {
+        const lineId = txEntries[dimRef.line_index].id
+        this.lineDimensions.push({
+          id: this.genId(),
+          transaction_line_id: lineId,
+          dimension_id: dimRef.dimension_id,
+        })
+      }
+    }
+
+    return txId
+  }
+
+  /**
+   * Filter entries by dimension filters.
+   * Same type = OR, different types = AND.
+   * Returns Set of entry IDs that match.
+   */
+  private filterEntriesByDimensions(entryIds: Set<string>, filters: DimensionFilter[]): Set<string> {
+    if (!filters || filters.length === 0) return entryIds
+
+    // Group filters by type
+    const byType = new Map<string, string[]>()
+    for (const f of filters) {
+      const arr = byType.get(f.type) || []
+      arr.push(f.dimension_id)
+      byType.set(f.type, arr)
+    }
+
+    let result = entryIds
+    // For each type, only keep entries that have at least one matching dimension (OR within type)
+    // Then AND across types
+    for (const [, dimIds] of byType) {
+      const dimIdSet = new Set(dimIds)
+      const matchingLineIds = new Set(
+        this.lineDimensions
+          .filter((ld) => dimIdSet.has(ld.dimension_id))
+          .map((ld) => ld.transaction_line_id),
+      )
+      result = new Set([...result].filter((eid) => matchingLineIds.has(eid)))
+    }
+
+    return result
+  }
+
+  getTrialBalanceWithDimensions(asOfDate?: string, excludeJournalTypes?: string[], dimensionFilters?: DimensionFilter[]): TrialBalanceResult {
+    if (!dimensionFilters || dimensionFilters.length === 0) {
+      return this.getTrialBalance(asOfDate, excludeJournalTypes)
+    }
+
+    const excludeTypes = new Set(excludeJournalTypes ?? [])
+    const rows: AccountBalanceRow[] = []
+
+    for (const acct of this.getAccounts()) {
+      let relevantEntries = this.entries.filter((e) => e.account_id === acct.id)
+      const filteredTxs = this.transactions.filter((t) => {
+        if (asOfDate && t.date > asOfDate) return false
+        if (excludeTypes.size > 0 && excludeTypes.has(t.journal_type)) return false
+        return true
+      })
+      const txIds = new Set(filteredTxs.map((t) => t.id))
+      relevantEntries = relevantEntries.filter((e) => txIds.has(e.transaction_id))
+
+      // Apply dimension filter
+      const entryIds = new Set(relevantEntries.map((e) => e.id))
+      const filtered = this.filterEntriesByDimensions(entryIds, dimensionFilters)
+      relevantEntries = relevantEntries.filter((e) => filtered.has(e.id))
+
+      const totalDebit = relevantEntries.reduce((s, e) => s + e.debit, 0)
+      const totalCredit = relevantEntries.reduce((s, e) => s + e.credit, 0)
+      const net = isDebitNormal(acct.type) ? totalDebit - totalCredit : totalCredit - totalDebit
+
+      if (net !== 0) {
+        let debit: number, credit: number
+        if (net >= 0) {
+          debit = isDebitNormal(acct.type) ? net : 0
+          credit = !isDebitNormal(acct.type) ? net : 0
+        } else {
+          debit = !isDebitNormal(acct.type) ? -net : 0
+          credit = isDebitNormal(acct.type) ? -net : 0
+        }
+        rows.push({
+          account_id: acct.id,
+          code: acct.code,
+          name: acct.name,
+          type: acct.type,
+          debit,
+          credit,
+          depth: acct.depth ?? 0,
+          parent_id: acct.parent_id,
+        })
+      }
+    }
+
+    const total_debits = rows.reduce((s, r) => s + r.debit, 0)
+    const total_credits = rows.reduce((s, r) => s + r.credit, 0)
+    return { rows, total_debits, total_credits, is_balanced: total_debits === total_credits }
+  }
+
+  getIncomeStatementWithDimensions(startDate: string, endDate: string, excludeJournalTypes?: string[], basis?: string, dimensionFilters?: DimensionFilter[]): IncomeStatementResult {
+    if (!dimensionFilters || dimensionFilters.length === 0) {
+      return this.getIncomeStatement(startDate, endDate, excludeJournalTypes, basis)
+    }
+
+    const excludeTypes = new Set(excludeJournalTypes ?? [])
+    const cashAccountIds = new Set(this.accounts.filter((a) => a.is_cash_account === 1).map((a) => a.id))
+    let filteredTxs = this.transactions
+      .filter((t) => t.date >= startDate && t.date <= endDate && !excludeTypes.has(t.journal_type))
+    if (basis === 'CASH') {
+      filteredTxs = filteredTxs.filter((t) =>
+        this.entries.some((e) => e.transaction_id === t.id && cashAccountIds.has(e.account_id))
+      )
+    }
+    const txIds = new Set(filteredTxs.map((t) => t.id))
+
+    const revenue: AccountBalanceItem[] = []
+    const expenses: AccountBalanceItem[] = []
+
+    for (const acct of this.getAccounts()) {
+      if (acct.type !== 'REVENUE' && acct.type !== 'EXPENSE') continue
+      let relevantEntries = this.entries.filter(
+        (e) => e.account_id === acct.id && txIds.has(e.transaction_id),
+      )
+
+      // Apply dimension filter
+      const entryIds = new Set(relevantEntries.map((e) => e.id))
+      const filtered = this.filterEntriesByDimensions(entryIds, dimensionFilters)
+      relevantEntries = relevantEntries.filter((e) => filtered.has(e.id))
+
+      const totalDebit = relevantEntries.reduce((s, e) => s + e.debit, 0)
+      const totalCredit = relevantEntries.reduce((s, e) => s + e.credit, 0)
+      const balance = isDebitNormal(acct.type) ? totalDebit - totalCredit : totalCredit - totalDebit
+      if (balance === 0) continue
+
+      const item = { account_id: acct.id, code: acct.code, name: acct.name, balance, depth: acct.depth ?? 0, parent_id: acct.parent_id }
+      if (acct.type === 'REVENUE') revenue.push(item)
+      else expenses.push(item)
+    }
+
+    const total_revenue = revenue.reduce((s, r) => s + r.balance, 0)
+    const total_expenses = expenses.reduce((s, r) => s + r.balance, 0)
+
+    return {
+      revenue,
+      expenses,
+      total_revenue,
+      total_expenses,
+      net_income: total_revenue - total_expenses,
+      start_date: startDate,
+      end_date: endDate,
+    }
+  }
+
+  getBalanceSheetWithDimensions(asOfDate: string, dimensionFilters?: DimensionFilter[]): BalanceSheetResult {
+    if (!dimensionFilters || dimensionFilters.length === 0) {
+      return this.getBalanceSheet(asOfDate)
+    }
+
+    const txIds = new Set(
+      this.transactions.filter((t) => t.date <= asOfDate).map((t) => t.id),
+    )
+
+    const assets: AccountBalanceItem[] = []
+    const liabilities: AccountBalanceItem[] = []
+    const equity: AccountBalanceItem[] = []
+    let netIncome = 0
+
+    for (const acct of this.getAccounts()) {
+      let relevantEntries = this.entries.filter(
+        (e) => e.account_id === acct.id && txIds.has(e.transaction_id),
+      )
+
+      // Apply dimension filter
+      const entryIds = new Set(relevantEntries.map((e) => e.id))
+      const filtered = this.filterEntriesByDimensions(entryIds, dimensionFilters)
+      relevantEntries = relevantEntries.filter((e) => filtered.has(e.id))
+
+      const totalDebit = relevantEntries.reduce((s, e) => s + e.debit, 0)
+      const totalCredit = relevantEntries.reduce((s, e) => s + e.credit, 0)
+      const balance = isDebitNormal(acct.type)
+        ? totalDebit - totalCredit
+        : totalCredit - totalDebit
+      if (balance === 0) continue
+
+      const item = { account_id: acct.id, code: acct.code, name: acct.name, balance, depth: acct.depth ?? 0, parent_id: acct.parent_id }
+      switch (acct.type) {
+        case 'ASSET': assets.push(item); break
+        case 'LIABILITY': liabilities.push(item); break
+        case 'EQUITY': equity.push(item); break
+        case 'REVENUE': netIncome += balance; break
+        case 'EXPENSE': netIncome -= balance; break
+      }
+    }
+
+    const total_assets = assets.reduce((s, r) => s + r.balance, 0)
+    const total_liabilities = liabilities.reduce((s, r) => s + r.balance, 0)
+    const total_equity = equity.reduce((s, r) => s + r.balance, 0) + netIncome
+
+    return {
+      assets,
+      liabilities,
+      equity,
+      total_assets,
+      total_liabilities,
+      total_equity,
+      is_balanced: total_assets === total_liabilities + total_equity,
+      as_of_date: asOfDate,
     }
   }
 }

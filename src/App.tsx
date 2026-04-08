@@ -16,6 +16,7 @@ import { CashFlowStatementReport } from './components/CashFlowStatement'
 import { CsvImport } from './components/CsvImport'
 import { RecurringTransactions } from './components/RecurringTransactions'
 import { BankFeed } from './components/BankFeed'
+import { DimensionsPage } from './components/DimensionsPage'
 import { api } from './lib/api'
 
 function App() {
@@ -60,6 +61,7 @@ function App() {
       {page === 'cash-flow' && <CashFlowStatementReport version={version} />}
       {page === 'opening-balances' && <OpeningBalancesWizard version={version} onSaved={refresh} />}
       {page === 'fiscal-year-close' && <FiscalYearClose version={version} />}
+      {page === 'dimensions' && <DimensionsPage version={version} />}
       {page === 'settings' && <SettingsPage version={version} />}
     </AppShell>
   )

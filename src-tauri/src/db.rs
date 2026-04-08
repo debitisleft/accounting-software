@@ -155,6 +155,26 @@ fn create_tables(conn: &Connection) -> Result<()> {
             enabled INTEGER NOT NULL DEFAULT 1,
             installed_at INTEGER NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS dimensions (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            code TEXT,
+            parent_id TEXT REFERENCES dimensions(id),
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(type, name)
+        );
+
+        CREATE TABLE IF NOT EXISTS transaction_line_dimensions (
+            id TEXT PRIMARY KEY,
+            transaction_line_id TEXT NOT NULL REFERENCES journal_entries(id),
+            dimension_id TEXT NOT NULL REFERENCES dimensions(id),
+            UNIQUE(transaction_line_id, dimension_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_tld_dimension_id ON transaction_line_dimensions(dimension_id);
         "
     )?;
     Ok(())

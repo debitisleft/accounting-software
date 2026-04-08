@@ -14,6 +14,7 @@ export type Page =
   | 'bank-feed'
   | 'cash-flow'
   | 'fiscal-year-close'
+  | 'dimensions'
   | 'settings'
 
 interface SidebarItem {
@@ -47,6 +48,7 @@ const sections: SidebarSection[] = [
       { id: 'accounts', label: 'Chart of Accounts' },
       { id: 'opening-balances', label: 'Opening Balances' },
       { id: 'fiscal-year-close', label: 'Fiscal Year Close' },
+      { id: 'dimensions', label: 'Dimensions' },
     ],
   },
   {
@@ -78,6 +80,7 @@ const shortLabels: Record<Page, string> = {
   'opening-balances': 'OB',
   'cash-flow': 'CF',
   'fiscal-year-close': 'FY',
+  dimensions: 'DM',
   settings: 'S',
 }
 
