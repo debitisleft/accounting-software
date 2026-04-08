@@ -175,6 +175,37 @@ fn create_tables(conn: &Connection) -> Result<()> {
         );
 
         CREATE INDEX IF NOT EXISTS idx_tld_dimension_id ON transaction_line_dimensions(dimension_id);
+
+        CREATE TABLE IF NOT EXISTS contacts (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL CHECK(type IN ('CUSTOMER','VENDOR','EMPLOYEE','OTHER')),
+            name TEXT NOT NULL,
+            company_name TEXT,
+            email TEXT,
+            phone TEXT,
+            address_line1 TEXT,
+            address_line2 TEXT,
+            city TEXT,
+            state TEXT,
+            postal_code TEXT,
+            country TEXT DEFAULT 'US',
+            tax_id TEXT,
+            notes TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS transaction_contacts (
+            id TEXT PRIMARY KEY,
+            transaction_id TEXT NOT NULL REFERENCES transactions(id),
+            contact_id TEXT NOT NULL REFERENCES contacts(id),
+            role TEXT NOT NULL DEFAULT 'PRIMARY',
+            UNIQUE(transaction_id, contact_id, role)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_tc_contact_id ON transaction_contacts(contact_id);
+        CREATE INDEX IF NOT EXISTS idx_tc_transaction_id ON transaction_contacts(transaction_id);
         "
     )?;
     Ok(())

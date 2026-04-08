@@ -89,6 +89,18 @@ pub fn run() {
             commands::list_dimension_types,
             commands::delete_dimension,
             commands::get_transaction_dimensions,
+            // Phase 33: Contacts
+            commands::create_contact,
+            commands::update_contact,
+            commands::get_contact,
+            commands::list_contacts,
+            commands::deactivate_contact,
+            commands::reactivate_contact,
+            commands::delete_contact,
+            commands::link_transaction_contact,
+            commands::unlink_transaction_contact,
+            commands::get_contact_ledger,
+            commands::get_contact_balance,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

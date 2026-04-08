@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { api, type Account, type Dimension } from '../lib/api'
+import { api, type Account, type Dimension, type Contact } from '../lib/api'
 
 interface EntryRow {
   accountId: string
@@ -39,6 +39,8 @@ export function JournalEntryForm({
   const [accountList, setAccountList] = useState<Account[]>([])
   const [dimensionList, setDimensionList] = useState<Dimension[]>([])
   const [dimTypes, setDimTypes] = useState<string[]>([])
+  const [contactList, setContactList] = useState<Contact[]>([])
+  const [selectedContactId, setSelectedContactId] = useState<string>('')
 
   useEffect(() => {
     api.getAccounts().then(setAccountList).catch(() => {})
@@ -46,6 +48,7 @@ export function JournalEntryForm({
       setDimensionList(dims.filter((d) => d.is_active === 1))
       setDimTypes([...new Set(dims.filter((d) => d.is_active === 1).map((d) => d.type))])
     }).catch(() => {})
+    api.listContacts(undefined, undefined, 1).then(setContactList).catch(() => {})
   }, [version])
 
   const totalDebit = rows.reduce((sum, r) => sum + dollarsToCents(r.debitDollars), 0)
@@ -114,9 +117,13 @@ export function JournalEntryForm({
         entries,
         dimensions: dimAssignments.length > 0 ? dimAssignments : undefined,
       })
+      if (selectedContactId) {
+        await api.linkTransactionContact(txId, selectedContactId)
+      }
       setSaveMessage(`Transaction ${txId.slice(0, 8)}... saved!`)
       setDescription('')
       setJournalType('GENERAL')
+      setSelectedContactId('')
       setRows([emptyRow(), emptyRow()])
       onSaved()
     } catch (err) {
@@ -165,6 +172,21 @@ export function JournalEntryForm({
             placeholder="e.g., Sale of goods"
             style={{ marginLeft: '8px', padding: '4px', width: '300px' }}
           />
+        </label>
+        <label>
+          Contact:
+          <select
+            value={selectedContactId}
+            onChange={(e) => setSelectedContactId(e.target.value)}
+            style={{ marginLeft: '8px', padding: '4px' }}
+          >
+            <option value="">None</option>
+            {contactList.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.type})
+              </option>
+            ))}
+          </select>
         </label>
       </div>
 

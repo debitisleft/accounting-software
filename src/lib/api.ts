@@ -226,6 +226,48 @@ export interface DimensionFilter {
   dimension_id: string
 }
 
+// ── Contact Types (Phase 33) ──────────────────────────
+
+export interface Contact {
+  id: string
+  type: string
+  name: string
+  company_name: string | null
+  email: string | null
+  phone: string | null
+  address_line1: string | null
+  address_line2: string | null
+  city: string | null
+  state: string | null
+  postal_code: string | null
+  country: string | null
+  tax_id: string | null
+  notes: string | null
+  is_active: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ContactLedgerEntry {
+  transaction_id: string
+  date: string
+  description: string
+  reference: string | null
+  journal_type: string
+  total_debit: number
+  total_credit: number
+  running_balance: number
+}
+
+export interface ContactLedgerResult {
+  contact_id: string
+  contact_name: string
+  entries: ContactLedgerEntry[]
+  total_debits: number
+  total_credits: number
+  net_balance: number
+}
+
 // ── API — the ONLY place invoke() is called ──────────────
 
 export const api = {
@@ -543,4 +585,85 @@ export const api = {
 
   getTransactionDimensions: (transactionId: string) =>
     invoke<LineDimension[]>('get_transaction_dimensions', { transactionId }),
+
+  // Phase 33: Contacts
+  createContact: (data: {
+    contactType: string; name: string; companyName?: string; email?: string; phone?: string;
+    addressLine1?: string; addressLine2?: string; city?: string; state?: string;
+    postalCode?: string; country?: string; taxId?: string; notes?: string
+  }) =>
+    invoke<string>('create_contact', {
+      contactType: data.contactType,
+      name: data.name,
+      companyName: data.companyName ?? null,
+      email: data.email ?? null,
+      phone: data.phone ?? null,
+      addressLine1: data.addressLine1 ?? null,
+      addressLine2: data.addressLine2 ?? null,
+      city: data.city ?? null,
+      state: data.state ?? null,
+      postalCode: data.postalCode ?? null,
+      country: data.country ?? null,
+      taxId: data.taxId ?? null,
+      notes: data.notes ?? null,
+    }),
+
+  updateContact: (id: string, data: {
+    name?: string; companyName?: string; email?: string; phone?: string;
+    addressLine1?: string; addressLine2?: string; city?: string; state?: string;
+    postalCode?: string; country?: string; taxId?: string; notes?: string
+  }) =>
+    invoke<void>('update_contact', {
+      id,
+      name: data.name ?? null,
+      companyName: data.companyName ?? null,
+      email: data.email ?? null,
+      phone: data.phone ?? null,
+      addressLine1: data.addressLine1 ?? null,
+      addressLine2: data.addressLine2 ?? null,
+      city: data.city ?? null,
+      state: data.state ?? null,
+      postalCode: data.postalCode ?? null,
+      country: data.country ?? null,
+      taxId: data.taxId ?? null,
+      notes: data.notes ?? null,
+    }),
+
+  getContact: (id: string) =>
+    invoke<Contact>('get_contact', { id }),
+
+  listContacts: (contactType?: string, search?: string, isActive?: number) =>
+    invoke<Contact[]>('list_contacts', {
+      contactType: contactType ?? null,
+      search: search ?? null,
+      isActive: isActive ?? null,
+    }),
+
+  deactivateContact: (id: string) =>
+    invoke<void>('deactivate_contact', { id }),
+
+  reactivateContact: (id: string) =>
+    invoke<void>('reactivate_contact', { id }),
+
+  deleteContact: (id: string) =>
+    invoke<void>('delete_contact', { id }),
+
+  linkTransactionContact: (transactionId: string, contactId: string) =>
+    invoke<void>('link_transaction_contact', { transactionId, contactId }),
+
+  unlinkTransactionContact: (transactionId: string) =>
+    invoke<void>('unlink_transaction_contact', { transactionId }),
+
+  getContactLedger: (contactId: string, startDate?: string, endDate?: string) =>
+    invoke<ContactLedgerResult>('get_contact_ledger', {
+      contactId,
+      startDate: startDate ?? null,
+      endDate: endDate ?? null,
+    }),
+
+  getContactBalance: (contactId: string, asOf?: string) =>
+    invoke<number>('get_contact_balance', {
+      contactId,
+      asOf: asOf ?? null,
+    }),
 }

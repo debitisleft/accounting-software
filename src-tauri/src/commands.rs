@@ -3667,3 +3667,454 @@ pub async fn get_transaction_dimensions(
     }
     Ok(result)
 }
+
+// ── Phase 33: Contact Registry ───────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Contact {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub contact_type: String,
+    pub name: String,
+    pub company_name: Option<String>,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+    pub address_line1: Option<String>,
+    pub address_line2: Option<String>,
+    pub city: Option<String>,
+    pub state: Option<String>,
+    pub postal_code: Option<String>,
+    pub country: Option<String>,
+    pub tax_id: Option<String>,
+    pub notes: Option<String>,
+    pub is_active: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ContactLedgerEntry {
+    pub transaction_id: String,
+    pub date: String,
+    pub description: String,
+    pub reference: Option<String>,
+    pub journal_type: String,
+    pub total_debit: i64,
+    pub total_credit: i64,
+    pub running_balance: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ContactLedgerResult {
+    pub contact_id: String,
+    pub contact_name: String,
+    pub entries: Vec<ContactLedgerEntry>,
+    pub total_debits: i64,
+    pub total_credits: i64,
+    pub net_balance: i64,
+}
+
+#[tauri::command]
+pub async fn create_contact(
+    db: State<'_, DbState>,
+    contact_type: String,
+    name: String,
+    company_name: Option<String>,
+    email: Option<String>,
+    phone: Option<String>,
+    address_line1: Option<String>,
+    address_line2: Option<String>,
+    city: Option<String>,
+    state: Option<String>,
+    postal_code: Option<String>,
+    country: Option<String>,
+    tax_id: Option<String>,
+    notes: Option<String>,
+) -> Result<String, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let valid_types = ["CUSTOMER", "VENDOR", "EMPLOYEE", "OTHER"];
+    if !valid_types.contains(&contact_type.as_str()) {
+        return Err(format!("Invalid contact type: {}", contact_type));
+    }
+
+    let id = Uuid::new_v4().to_string();
+    let now = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+    let country_val = country.unwrap_or_else(|| "US".to_string());
+
+    conn.execute(
+        "INSERT INTO contacts (id, type, name, company_name, email, phone, address_line1, address_line2, city, state, postal_code, country, tax_id, notes, is_active, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 1, ?15, ?15)",
+        params![id, contact_type, name, company_name, email, phone, address_line1, address_line2, city, state, postal_code, country_val, tax_id, notes, now],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn update_contact(
+    db: State<'_, DbState>,
+    id: String,
+    name: Option<String>,
+    company_name: Option<String>,
+    email: Option<String>,
+    phone: Option<String>,
+    address_line1: Option<String>,
+    address_line2: Option<String>,
+    city: Option<String>,
+    state: Option<String>,
+    postal_code: Option<String>,
+    country: Option<String>,
+    tax_id: Option<String>,
+    notes: Option<String>,
+) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Check exists
+    let _exists: String = conn.query_row(
+        "SELECT id FROM contacts WHERE id = ?1", params![id], |row| row.get(0),
+    ).map_err(|_| format!("Contact not found: {}", id))?;
+
+    let now = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+
+    if let Some(ref v) = name { conn.execute("UPDATE contacts SET name = ?1, updated_at = ?3 WHERE id = ?2", params![v, id, now]).map_err(|e| e.to_string())?; }
+    if let Some(ref v) = company_name { conn.execute("UPDATE contacts SET company_name = ?1, updated_at = ?3 WHERE id = ?2", params![v, id, now]).map_err(|e| e.to_string())?; }
+    if let Some(ref v) = email { conn.execute("UPDATE contacts SET email = ?1, updated_at = ?3 WHERE id = ?2", params![v, id, now]).map_err(|e| e.to_string())?; }
+    if let Some(ref v) = phone { conn.execute("UPDATE contacts SET phone = ?1, updated_at = ?3 WHERE id = ?2", params![v, id, now]).map_err(|e| e.to_string())?; }
+    if let Some(ref v) = address_line1 { conn.execute("UPDATE contacts SET address_line1 = ?1, updated_at = ?3 WHERE id = ?2", params![v, id, now]).map_err(|e| e.to_string())?; }
+    if let Some(ref v) = address_line2 { conn.execute("UPDATE contacts SET address_line2 = ?1, updated_at = ?3 WHERE id = ?2", params![v, id, now]).map_err(|e| e.to_string())?; }
+    if let Some(ref v) = city { conn.execute("UPDATE contacts SET city = ?1, updated_at = ?3 WHERE id = ?2", params![v, id, now]).map_err(|e| e.to_string())?; }
+    if let Some(ref v) = state { conn.execute("UPDATE contacts SET state = ?1, updated_at = ?3 WHERE id = ?2", params![v, id, now]).map_err(|e| e.to_string())?; }
+    if let Some(ref v) = postal_code { conn.execute("UPDATE contacts SET postal_code = ?1, updated_at = ?3 WHERE id = ?2", params![v, id, now]).map_err(|e| e.to_string())?; }
+    if let Some(ref v) = country { conn.execute("UPDATE contacts SET country = ?1, updated_at = ?3 WHERE id = ?2", params![v, id, now]).map_err(|e| e.to_string())?; }
+    if let Some(ref v) = tax_id { conn.execute("UPDATE contacts SET tax_id = ?1, updated_at = ?3 WHERE id = ?2", params![v, id, now]).map_err(|e| e.to_string())?; }
+    if let Some(ref v) = notes { conn.execute("UPDATE contacts SET notes = ?1, updated_at = ?3 WHERE id = ?2", params![v, id, now]).map_err(|e| e.to_string())?; }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_contact(
+    db: State<'_, DbState>,
+    id: String,
+) -> Result<Contact, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    conn.query_row(
+        "SELECT id, type, name, company_name, email, phone, address_line1, address_line2, city, state, postal_code, country, tax_id, notes, is_active, created_at, updated_at
+         FROM contacts WHERE id = ?1",
+        params![id],
+        |row| Ok(Contact {
+            id: row.get(0)?,
+            contact_type: row.get(1)?,
+            name: row.get(2)?,
+            company_name: row.get(3)?,
+            email: row.get(4)?,
+            phone: row.get(5)?,
+            address_line1: row.get(6)?,
+            address_line2: row.get(7)?,
+            city: row.get(8)?,
+            state: row.get(9)?,
+            postal_code: row.get(10)?,
+            country: row.get(11)?,
+            tax_id: row.get(12)?,
+            notes: row.get(13)?,
+            is_active: row.get(14)?,
+            created_at: row.get(15)?,
+            updated_at: row.get(16)?,
+        }),
+    ).map_err(|_| format!("Contact not found: {}", id))
+}
+
+#[tauri::command]
+pub async fn list_contacts(
+    db: State<'_, DbState>,
+    contact_type: Option<String>,
+    search: Option<String>,
+    is_active: Option<i64>,
+) -> Result<Vec<Contact>, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let mut conditions = Vec::new();
+    let mut param_values: Vec<String> = Vec::new();
+
+    if let Some(ref t) = contact_type {
+        param_values.push(t.clone());
+        conditions.push(format!("type = ?{}", param_values.len()));
+    }
+    if let Some(ref s) = search {
+        let like = format!("%{}%", s);
+        param_values.push(like.clone());
+        let idx = param_values.len();
+        param_values.push(like.clone());
+        let idx2 = param_values.len();
+        param_values.push(like);
+        let idx3 = param_values.len();
+        conditions.push(format!("(name LIKE ?{} OR company_name LIKE ?{} OR email LIKE ?{})", idx, idx2, idx3));
+    }
+    if let Some(active) = is_active {
+        param_values.push(active.to_string());
+        conditions.push(format!("is_active = ?{}", param_values.len()));
+    }
+
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", conditions.join(" AND "))
+    };
+
+    let query = format!(
+        "SELECT id, type, name, company_name, email, phone, address_line1, address_line2, city, state, postal_code, country, tax_id, notes, is_active, created_at, updated_at
+         FROM contacts{} ORDER BY name",
+        where_clause
+    );
+
+    let mut stmt = conn.prepare(&query).map_err(|e| e.to_string())?;
+    let params_refs: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+    let rows = stmt.query_map(params_refs.as_slice(), |row| {
+        Ok(Contact {
+            id: row.get(0)?,
+            contact_type: row.get(1)?,
+            name: row.get(2)?,
+            company_name: row.get(3)?,
+            email: row.get(4)?,
+            phone: row.get(5)?,
+            address_line1: row.get(6)?,
+            address_line2: row.get(7)?,
+            city: row.get(8)?,
+            state: row.get(9)?,
+            postal_code: row.get(10)?,
+            country: row.get(11)?,
+            tax_id: row.get(12)?,
+            notes: row.get(13)?,
+            is_active: row.get(14)?,
+            created_at: row.get(15)?,
+            updated_at: row.get(16)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn deactivate_contact(
+    db: State<'_, DbState>,
+    id: String,
+) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    let now = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+    let rows = conn.execute("UPDATE contacts SET is_active = 0, updated_at = ?2 WHERE id = ?1", params![id, now])
+        .map_err(|e| e.to_string())?;
+    if rows == 0 { return Err(format!("Contact not found: {}", id)); }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn reactivate_contact(
+    db: State<'_, DbState>,
+    id: String,
+) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    let now = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+    let rows = conn.execute("UPDATE contacts SET is_active = 1, updated_at = ?2 WHERE id = ?1", params![id, now])
+        .map_err(|e| e.to_string())?;
+    if rows == 0 { return Err(format!("Contact not found: {}", id)); }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_contact(
+    db: State<'_, DbState>,
+    id: String,
+) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let ref_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM transaction_contacts WHERE contact_id = ?1",
+        params![id],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    if ref_count > 0 {
+        return Err("Cannot delete contact with transaction references. Deactivate instead.".to_string());
+    }
+
+    let rows = conn.execute("DELETE FROM contacts WHERE id = ?1", params![id])
+        .map_err(|e| e.to_string())?;
+    if rows == 0 { return Err(format!("Contact not found: {}", id)); }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn link_transaction_contact(
+    db: State<'_, DbState>,
+    transaction_id: String,
+    contact_id: String,
+) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Validate contact exists
+    let _: String = conn.query_row(
+        "SELECT id FROM contacts WHERE id = ?1", params![contact_id], |row| row.get(0),
+    ).map_err(|_| format!("Contact not found: {}", contact_id))?;
+
+    // Validate transaction exists
+    let _: String = conn.query_row(
+        "SELECT id FROM transactions WHERE id = ?1", params![transaction_id], |row| row.get(0),
+    ).map_err(|_| format!("Transaction not found: {}", transaction_id))?;
+
+    // Remove existing PRIMARY link if any
+    conn.execute(
+        "DELETE FROM transaction_contacts WHERE transaction_id = ?1 AND role = 'PRIMARY'",
+        params![transaction_id],
+    ).map_err(|e| e.to_string())?;
+
+    let id = Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO transaction_contacts (id, transaction_id, contact_id, role) VALUES (?1, ?2, ?3, 'PRIMARY')",
+        params![id, transaction_id, contact_id],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn unlink_transaction_contact(
+    db: State<'_, DbState>,
+    transaction_id: String,
+) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    conn.execute(
+        "DELETE FROM transaction_contacts WHERE transaction_id = ?1 AND role = 'PRIMARY'",
+        params![transaction_id],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_contact_ledger(
+    db: State<'_, DbState>,
+    contact_id: String,
+    start_date: Option<String>,
+    end_date: Option<String>,
+) -> Result<ContactLedgerResult, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let contact_name: String = conn.query_row(
+        "SELECT name FROM contacts WHERE id = ?1", params![contact_id], |row| row.get(0),
+    ).map_err(|_| format!("Contact not found: {}", contact_id))?;
+
+    let mut date_clause = String::new();
+    if let Some(ref sd) = start_date {
+        date_clause.push_str(&format!(" AND t.date >= '{}'", sd));
+    }
+    if let Some(ref ed) = end_date {
+        date_clause.push_str(&format!(" AND t.date <= '{}'", ed));
+    }
+
+    let query = format!(
+        "SELECT t.id, t.date, t.description, t.reference, t.journal_type,
+                COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0)
+         FROM transactions t
+         JOIN transaction_contacts tc ON tc.transaction_id = t.id
+         JOIN journal_entries je ON je.transaction_id = t.id
+         WHERE tc.contact_id = ?1 AND t.is_void = 0{}
+         GROUP BY t.id
+         ORDER BY t.date, t.created_at",
+        date_clause
+    );
+
+    let mut stmt = conn.prepare(&query).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map(params![contact_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, i64>(5)?,
+            row.get::<_, i64>(6)?,
+        ))
+    }).map_err(|e| e.to_string())?;
+
+    let mut entries = Vec::new();
+    let mut running = 0i64;
+    let mut total_debits = 0i64;
+    let mut total_credits = 0i64;
+
+    for row in rows {
+        let (tx_id, date, desc, reference, jtype, debit, credit) = row.map_err(|e| e.to_string())?;
+        running += debit - credit;
+        total_debits += debit;
+        total_credits += credit;
+        entries.push(ContactLedgerEntry {
+            transaction_id: tx_id,
+            date,
+            description: desc,
+            reference,
+            journal_type: jtype,
+            total_debit: debit,
+            total_credit: credit,
+            running_balance: running,
+        });
+    }
+
+    Ok(ContactLedgerResult {
+        contact_id: contact_id.clone(),
+        contact_name,
+        entries,
+        total_debits,
+        total_credits,
+        net_balance: running,
+    })
+}
+
+#[tauri::command]
+pub async fn get_contact_balance(
+    db: State<'_, DbState>,
+    contact_id: String,
+    as_of: Option<String>,
+) -> Result<i64, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Validate contact exists
+    let _: String = conn.query_row(
+        "SELECT id FROM contacts WHERE id = ?1", params![contact_id], |row| row.get(0),
+    ).map_err(|_| format!("Contact not found: {}", contact_id))?;
+
+    let date_clause = match &as_of {
+        Some(d) => format!(" AND t.date <= '{}'", d),
+        None => String::new(),
+    };
+
+    let query = format!(
+        "SELECT COALESCE(SUM(je.debit), 0) - COALESCE(SUM(je.credit), 0)
+         FROM journal_entries je
+         JOIN transactions t ON je.transaction_id = t.id
+         JOIN transaction_contacts tc ON tc.transaction_id = t.id
+         WHERE tc.contact_id = ?1 AND t.is_void = 0{}",
+        date_clause
+    );
+
+    let balance: i64 = conn.query_row(&query, params![contact_id], |row| row.get(0))
+        .map_err(|e| e.to_string())?;
+
+    Ok(balance)
+}

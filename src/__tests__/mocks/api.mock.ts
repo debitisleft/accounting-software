@@ -30,6 +30,9 @@ import type {
   Dimension,
   LineDimension,
   DimensionFilter,
+  Contact,
+  ContactLedgerEntry,
+  ContactLedgerResult,
 } from '../../lib/api'
 
 interface StoredTransaction {
@@ -104,6 +107,8 @@ export class MockApi {
   }[] = []
   dimensions: Dimension[] = []
   lineDimensions: { id: string; transaction_line_id: string; dimension_id: string }[] = []
+  contacts: Contact[] = []
+  transactionContacts: { id: string; transaction_id: string; contact_id: string; role: string }[] = []
   recentFiles: RecentFile[] = []
   fileOpen = false
   currentPath: string | null = null
@@ -1911,6 +1916,425 @@ export class MockApi {
       const entryIds = new Set(relevantEntries.map((e) => e.id))
       const filtered = this.filterEntriesByDimensions(entryIds, dimensionFilters)
       relevantEntries = relevantEntries.filter((e) => filtered.has(e.id))
+
+      const totalDebit = relevantEntries.reduce((s, e) => s + e.debit, 0)
+      const totalCredit = relevantEntries.reduce((s, e) => s + e.credit, 0)
+      const balance = isDebitNormal(acct.type)
+        ? totalDebit - totalCredit
+        : totalCredit - totalDebit
+      if (balance === 0) continue
+
+      const item = { account_id: acct.id, code: acct.code, name: acct.name, balance, depth: acct.depth ?? 0, parent_id: acct.parent_id }
+      switch (acct.type) {
+        case 'ASSET': assets.push(item); break
+        case 'LIABILITY': liabilities.push(item); break
+        case 'EQUITY': equity.push(item); break
+        case 'REVENUE': netIncome += balance; break
+        case 'EXPENSE': netIncome -= balance; break
+      }
+    }
+
+    const total_assets = assets.reduce((s, r) => s + r.balance, 0)
+    const total_liabilities = liabilities.reduce((s, r) => s + r.balance, 0)
+    const total_equity = equity.reduce((s, r) => s + r.balance, 0) + netIncome
+
+    return {
+      assets,
+      liabilities,
+      equity,
+      total_assets,
+      total_liabilities,
+      total_equity,
+      is_balanced: total_assets === total_liabilities + total_equity,
+      as_of_date: asOfDate,
+    }
+  }
+
+  // ── Phase 33: Contact Registry ──────────────────────────
+
+  createContact(data: {
+    contactType: string; name: string; companyName?: string; email?: string; phone?: string;
+    addressLine1?: string; addressLine2?: string; city?: string; state?: string;
+    postalCode?: string; country?: string; taxId?: string; notes?: string
+  }): string {
+    this.guardFileOpen()
+    const validTypes = ['CUSTOMER', 'VENDOR', 'EMPLOYEE', 'OTHER']
+    if (!validTypes.includes(data.contactType)) {
+      throw new Error(`Invalid contact type: ${data.contactType}`)
+    }
+    const id = this.genId()
+    const now = new Date().toISOString()
+    this.contacts.push({
+      id,
+      type: data.contactType,
+      name: data.name,
+      company_name: data.companyName ?? null,
+      email: data.email ?? null,
+      phone: data.phone ?? null,
+      address_line1: data.addressLine1 ?? null,
+      address_line2: data.addressLine2 ?? null,
+      city: data.city ?? null,
+      state: data.state ?? null,
+      postal_code: data.postalCode ?? null,
+      country: data.country ?? 'US',
+      tax_id: data.taxId ?? null,
+      notes: data.notes ?? null,
+      is_active: 1,
+      created_at: now,
+      updated_at: now,
+    })
+    return id
+  }
+
+  updateContact(id: string, data: {
+    name?: string; companyName?: string; email?: string; phone?: string;
+    addressLine1?: string; addressLine2?: string; city?: string; state?: string;
+    postalCode?: string; country?: string; taxId?: string; notes?: string
+  }): void {
+    this.guardFileOpen()
+    const contact = this.contacts.find((c) => c.id === id)
+    if (!contact) throw new Error(`Contact not found: ${id}`)
+    const now = new Date().toISOString()
+    if (data.name !== undefined) contact.name = data.name
+    if (data.companyName !== undefined) contact.company_name = data.companyName
+    if (data.email !== undefined) contact.email = data.email
+    if (data.phone !== undefined) contact.phone = data.phone
+    if (data.addressLine1 !== undefined) contact.address_line1 = data.addressLine1
+    if (data.addressLine2 !== undefined) contact.address_line2 = data.addressLine2
+    if (data.city !== undefined) contact.city = data.city
+    if (data.state !== undefined) contact.state = data.state
+    if (data.postalCode !== undefined) contact.postal_code = data.postalCode
+    if (data.country !== undefined) contact.country = data.country
+    if (data.taxId !== undefined) contact.tax_id = data.taxId
+    if (data.notes !== undefined) contact.notes = data.notes
+    contact.updated_at = now
+  }
+
+  getContact(id: string): Contact {
+    this.guardFileOpen()
+    const contact = this.contacts.find((c) => c.id === id)
+    if (!contact) throw new Error(`Contact not found: ${id}`)
+    return { ...contact }
+  }
+
+  listContacts(contactType?: string, search?: string, isActive?: number): Contact[] {
+    this.guardFileOpen()
+    let result = [...this.contacts]
+    if (contactType) {
+      result = result.filter((c) => c.type === contactType)
+    }
+    if (search) {
+      const lower = search.toLowerCase()
+      result = result.filter((c) =>
+        c.name.toLowerCase().includes(lower) ||
+        (c.company_name && c.company_name.toLowerCase().includes(lower)) ||
+        (c.email && c.email.toLowerCase().includes(lower))
+      )
+    }
+    if (isActive !== undefined) {
+      result = result.filter((c) => c.is_active === isActive)
+    }
+    return result.sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  deactivateContact(id: string): void {
+    this.guardFileOpen()
+    const contact = this.contacts.find((c) => c.id === id)
+    if (!contact) throw new Error(`Contact not found: ${id}`)
+    contact.is_active = 0
+    contact.updated_at = new Date().toISOString()
+  }
+
+  reactivateContact(id: string): void {
+    this.guardFileOpen()
+    const contact = this.contacts.find((c) => c.id === id)
+    if (!contact) throw new Error(`Contact not found: ${id}`)
+    contact.is_active = 1
+    contact.updated_at = new Date().toISOString()
+  }
+
+  deleteContact(id: string): void {
+    this.guardFileOpen()
+    if (this.transactionContacts.some((tc) => tc.contact_id === id)) {
+      throw new Error('Cannot delete contact with transaction references. Deactivate instead.')
+    }
+    const idx = this.contacts.findIndex((c) => c.id === id)
+    if (idx === -1) throw new Error(`Contact not found: ${id}`)
+    this.contacts.splice(idx, 1)
+  }
+
+  linkTransactionContact(transactionId: string, contactId: string): void {
+    this.guardFileOpen()
+    const contact = this.contacts.find((c) => c.id === contactId)
+    if (!contact) throw new Error(`Contact not found: ${contactId}`)
+    const tx = this.transactions.find((t) => t.id === transactionId)
+    if (!tx) throw new Error(`Transaction not found: ${transactionId}`)
+    // Remove existing PRIMARY link
+    this.transactionContacts = this.transactionContacts.filter(
+      (tc) => !(tc.transaction_id === transactionId && tc.role === 'PRIMARY')
+    )
+    this.transactionContacts.push({
+      id: this.genId(),
+      transaction_id: transactionId,
+      contact_id: contactId,
+      role: 'PRIMARY',
+    })
+  }
+
+  unlinkTransactionContact(transactionId: string): void {
+    this.guardFileOpen()
+    this.transactionContacts = this.transactionContacts.filter(
+      (tc) => !(tc.transaction_id === transactionId && tc.role === 'PRIMARY')
+    )
+  }
+
+  createTransactionWithContact(data: {
+    date: string; description: string; reference?: string; journal_type?: string;
+    entries: JournalEntryInput[]; contact_id?: string;
+    dimensions?: { line_index: number; dimension_id: string }[]
+  }): string {
+    // Validate contact if provided
+    if (data.contact_id) {
+      const contact = this.contacts.find((c) => c.id === data.contact_id)
+      if (!contact) throw new Error(`Contact not found: ${data.contact_id}`)
+    }
+
+    // Create transaction (with dimensions if provided)
+    let txId: string
+    if (data.dimensions) {
+      txId = this.createTransactionWithDimensions(data)
+    } else {
+      txId = this.createTransaction(data)
+    }
+
+    // Link contact
+    if (data.contact_id) {
+      this.linkTransactionContact(txId, data.contact_id)
+    }
+
+    return txId
+  }
+
+  getContactLedger(contactId: string, startDate?: string, endDate?: string): ContactLedgerResult {
+    this.guardFileOpen()
+    const contact = this.contacts.find((c) => c.id === contactId)
+    if (!contact) throw new Error(`Contact not found: ${contactId}`)
+
+    const linkedTxIds = new Set(
+      this.transactionContacts.filter((tc) => tc.contact_id === contactId).map((tc) => tc.transaction_id)
+    )
+
+    let txs = this.transactions
+      .filter((t) => linkedTxIds.has(t.id) && t.is_void === 0)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.created_at - b.created_at)
+
+    if (startDate) txs = txs.filter((t) => t.date >= startDate)
+    if (endDate) txs = txs.filter((t) => t.date <= endDate)
+
+    let running = 0
+    let totalDebits = 0
+    let totalCredits = 0
+    const entries: ContactLedgerEntry[] = []
+
+    for (const tx of txs) {
+      const txEntries = this.entries.filter((e) => e.transaction_id === tx.id)
+      const debit = txEntries.reduce((s, e) => s + e.debit, 0)
+      const credit = txEntries.reduce((s, e) => s + e.credit, 0)
+      running += debit - credit
+      totalDebits += debit
+      totalCredits += credit
+      entries.push({
+        transaction_id: tx.id,
+        date: tx.date,
+        description: tx.description,
+        reference: tx.reference,
+        journal_type: tx.journal_type,
+        total_debit: debit,
+        total_credit: credit,
+        running_balance: running,
+      })
+    }
+
+    return {
+      contact_id: contactId,
+      contact_name: contact.name,
+      entries,
+      total_debits: totalDebits,
+      total_credits: totalCredits,
+      net_balance: running,
+    }
+  }
+
+  getContactBalance(contactId: string, asOf?: string): number {
+    this.guardFileOpen()
+    const contact = this.contacts.find((c) => c.id === contactId)
+    if (!contact) throw new Error(`Contact not found: ${contactId}`)
+
+    const linkedTxIds = new Set(
+      this.transactionContacts.filter((tc) => tc.contact_id === contactId).map((tc) => tc.transaction_id)
+    )
+
+    let txs = this.transactions.filter((t) => linkedTxIds.has(t.id) && t.is_void === 0)
+    if (asOf) txs = txs.filter((t) => t.date <= asOf)
+
+    const txIds = new Set(txs.map((t) => t.id))
+    const relevantEntries = this.entries.filter((e) => txIds.has(e.transaction_id))
+    const totalDebit = relevantEntries.reduce((s, e) => s + e.debit, 0)
+    const totalCredit = relevantEntries.reduce((s, e) => s + e.credit, 0)
+    return totalDebit - totalCredit
+  }
+
+  /** Filter transactions by contact — returns Set of transaction IDs linked to this contact */
+  private filterTransactionsByContact(contactId: string): Set<string> {
+    return new Set(
+      this.transactionContacts.filter((tc) => tc.contact_id === contactId).map((tc) => tc.transaction_id)
+    )
+  }
+
+  getTrialBalanceWithContact(asOfDate?: string, excludeJournalTypes?: string[], contactId?: string, dimensionFilters?: DimensionFilter[]): TrialBalanceResult {
+    if (!contactId && (!dimensionFilters || dimensionFilters.length === 0)) {
+      return this.getTrialBalance(asOfDate, excludeJournalTypes)
+    }
+
+    const excludeTypes = new Set(excludeJournalTypes ?? [])
+    const contactTxIds = contactId ? this.filterTransactionsByContact(contactId) : null
+    const rows: AccountBalanceRow[] = []
+
+    for (const acct of this.getAccounts()) {
+      let relevantEntries = this.entries.filter((e) => e.account_id === acct.id)
+      const filteredTxs = this.transactions.filter((t) => {
+        if (asOfDate && t.date > asOfDate) return false
+        if (excludeTypes.size > 0 && excludeTypes.has(t.journal_type)) return false
+        if (contactTxIds && !contactTxIds.has(t.id)) return false
+        return true
+      })
+      const txIds = new Set(filteredTxs.map((t) => t.id))
+      relevantEntries = relevantEntries.filter((e) => txIds.has(e.transaction_id))
+
+      // Apply dimension filter if provided
+      if (dimensionFilters && dimensionFilters.length > 0) {
+        const entryIds = new Set(relevantEntries.map((e) => e.id))
+        const filtered = this.filterEntriesByDimensions(entryIds, dimensionFilters)
+        relevantEntries = relevantEntries.filter((e) => filtered.has(e.id))
+      }
+
+      const totalDebit = relevantEntries.reduce((s, e) => s + e.debit, 0)
+      const totalCredit = relevantEntries.reduce((s, e) => s + e.credit, 0)
+      const net = isDebitNormal(acct.type) ? totalDebit - totalCredit : totalCredit - totalDebit
+
+      if (net !== 0) {
+        let debit: number, credit: number
+        if (net >= 0) {
+          debit = isDebitNormal(acct.type) ? net : 0
+          credit = !isDebitNormal(acct.type) ? net : 0
+        } else {
+          debit = !isDebitNormal(acct.type) ? -net : 0
+          credit = isDebitNormal(acct.type) ? -net : 0
+        }
+        rows.push({
+          account_id: acct.id,
+          code: acct.code,
+          name: acct.name,
+          type: acct.type,
+          debit,
+          credit,
+          depth: acct.depth ?? 0,
+          parent_id: acct.parent_id,
+        })
+      }
+    }
+
+    const total_debits = rows.reduce((s, r) => s + r.debit, 0)
+    const total_credits = rows.reduce((s, r) => s + r.credit, 0)
+    return { rows, total_debits, total_credits, is_balanced: total_debits === total_credits }
+  }
+
+  getIncomeStatementWithContact(startDate: string, endDate: string, excludeJournalTypes?: string[], basis?: string, contactId?: string, dimensionFilters?: DimensionFilter[]): IncomeStatementResult {
+    if (!contactId && (!dimensionFilters || dimensionFilters.length === 0)) {
+      return this.getIncomeStatement(startDate, endDate, excludeJournalTypes, basis)
+    }
+
+    const excludeTypes = new Set(excludeJournalTypes ?? [])
+    const contactTxIds = contactId ? this.filterTransactionsByContact(contactId) : null
+    const cashAccountIds = new Set(this.accounts.filter((a) => a.is_cash_account === 1).map((a) => a.id))
+    let filteredTxs = this.transactions
+      .filter((t) => t.date >= startDate && t.date <= endDate && !excludeTypes.has(t.journal_type))
+    if (contactTxIds) {
+      filteredTxs = filteredTxs.filter((t) => contactTxIds.has(t.id))
+    }
+    if (basis === 'CASH') {
+      filteredTxs = filteredTxs.filter((t) =>
+        this.entries.some((e) => e.transaction_id === t.id && cashAccountIds.has(e.account_id))
+      )
+    }
+    const txIds = new Set(filteredTxs.map((t) => t.id))
+
+    const revenue: AccountBalanceItem[] = []
+    const expenses: AccountBalanceItem[] = []
+
+    for (const acct of this.getAccounts()) {
+      if (acct.type !== 'REVENUE' && acct.type !== 'EXPENSE') continue
+      let relevantEntries = this.entries.filter(
+        (e) => e.account_id === acct.id && txIds.has(e.transaction_id),
+      )
+
+      if (dimensionFilters && dimensionFilters.length > 0) {
+        const entryIds = new Set(relevantEntries.map((e) => e.id))
+        const filtered = this.filterEntriesByDimensions(entryIds, dimensionFilters)
+        relevantEntries = relevantEntries.filter((e) => filtered.has(e.id))
+      }
+
+      const totalDebit = relevantEntries.reduce((s, e) => s + e.debit, 0)
+      const totalCredit = relevantEntries.reduce((s, e) => s + e.credit, 0)
+      const balance = isDebitNormal(acct.type) ? totalDebit - totalCredit : totalCredit - totalDebit
+      if (balance === 0) continue
+
+      const item = { account_id: acct.id, code: acct.code, name: acct.name, balance, depth: acct.depth ?? 0, parent_id: acct.parent_id }
+      if (acct.type === 'REVENUE') revenue.push(item)
+      else expenses.push(item)
+    }
+
+    const total_revenue = revenue.reduce((s, r) => s + r.balance, 0)
+    const total_expenses = expenses.reduce((s, r) => s + r.balance, 0)
+
+    return {
+      revenue,
+      expenses,
+      total_revenue,
+      total_expenses,
+      net_income: total_revenue - total_expenses,
+      start_date: startDate,
+      end_date: endDate,
+    }
+  }
+
+  getBalanceSheetWithContact(asOfDate: string, contactId?: string, dimensionFilters?: DimensionFilter[]): BalanceSheetResult {
+    if (!contactId && (!dimensionFilters || dimensionFilters.length === 0)) {
+      return this.getBalanceSheet(asOfDate)
+    }
+
+    const contactTxIds = contactId ? this.filterTransactionsByContact(contactId) : null
+    let filteredTxs = this.transactions.filter((t) => t.date <= asOfDate)
+    if (contactTxIds) {
+      filteredTxs = filteredTxs.filter((t) => contactTxIds.has(t.id))
+    }
+    const txIds = new Set(filteredTxs.map((t) => t.id))
+
+    const assets: AccountBalanceItem[] = []
+    const liabilities: AccountBalanceItem[] = []
+    const equity: AccountBalanceItem[] = []
+    let netIncome = 0
+
+    for (const acct of this.getAccounts()) {
+      let relevantEntries = this.entries.filter(
+        (e) => e.account_id === acct.id && txIds.has(e.transaction_id),
+      )
+
+      if (dimensionFilters && dimensionFilters.length > 0) {
+        const entryIds = new Set(relevantEntries.map((e) => e.id))
+        const filtered = this.filterEntriesByDimensions(entryIds, dimensionFilters)
+        relevantEntries = relevantEntries.filter((e) => filtered.has(e.id))
+      }
 
       const totalDebit = relevantEntries.reduce((s, e) => s + e.debit, 0)
       const totalCredit = relevantEntries.reduce((s, e) => s + e.credit, 0)

@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 32 Complete — Dimensions/Tags Engine
+## STATUS: Phase 33 Complete — Contact Registry
 
-## CURRENT STATE (2026-04-07)
-- 32 phases complete, 313 tests passing (296 existing + 17 dimensions − 1 skipped)
+## CURRENT STATE (2026-04-08)
+- 33 phases complete, 323 tests passing (313 existing + 10 contacts)
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,23 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 33 — Contact Registry (2026-04-08)
+- Added `contacts` table (type, name, company_name, email, phone, address fields, tax_id, notes, is_active)
+- Added `transaction_contacts` junction table linking transactions to contacts (UNIQUE per transaction+contact+role)
+- 11 Rust commands: create_contact, update_contact, get_contact, list_contacts, deactivate_contact, reactivate_contact, delete_contact, link_transaction_contact, unlink_transaction_contact, get_contact_ledger, get_contact_balance
+- Contact types: CUSTOMER, VENDOR, EMPLOYEE, OTHER
+- list_contacts with type filter, search (name/company/email), active filter
+- Cannot delete contact with transaction references — must deactivate instead
+- Contact ledger: all transactions linked to a contact with running balance (vendor/customer ledger)
+- Contact balance: net debit-credit across all linked transactions with optional as_of date
+- MockApi: full contact support including createTransactionWithContact, getTrialBalanceWithContact, getIncomeStatementWithContact, getBalanceSheetWithContact
+- Report filtering by contact composes with dimension filters (AND logic)
+- ContactsPage.tsx: CRUD, type filter tabs, search bar, click to detail view
+- ContactDetail.tsx: editable contact info, contact ledger table, summary totals (debits/credits/balance)
+- JournalEntryForm: contact picker dropdown (active contacts only)
+- 10 new tests covering CRUD, search, type filter, transaction linking, ledger, balance, delete protection, deactivation, report filtering, AND composition with dimensions
+- 323 tests passing (1 skipped)
 
 ### Phase 32 — Dimensions/Tags Engine (2026-04-07)
 - Added `dimensions` table (type, name, code, parent_id, is_active) with UNIQUE(type, name)

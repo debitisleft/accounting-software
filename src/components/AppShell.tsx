@@ -15,6 +15,8 @@ export type Page =
   | 'cash-flow'
   | 'fiscal-year-close'
   | 'dimensions'
+  | 'contacts'
+  | 'contacts-detail'
   | 'settings'
 
 interface SidebarItem {
@@ -49,6 +51,7 @@ const sections: SidebarSection[] = [
       { id: 'opening-balances', label: 'Opening Balances' },
       { id: 'fiscal-year-close', label: 'Fiscal Year Close' },
       { id: 'dimensions', label: 'Dimensions' },
+      { id: 'contacts', label: 'Contacts' },
     ],
   },
   {
@@ -81,6 +84,8 @@ const shortLabels: Record<Page, string> = {
   'cash-flow': 'CF',
   'fiscal-year-close': 'FY',
   dimensions: 'DM',
+  contacts: 'CT',
+  'contacts-detail': 'CD',
   settings: 'S',
 }
 

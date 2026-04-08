@@ -17,6 +17,8 @@ import { CsvImport } from './components/CsvImport'
 import { RecurringTransactions } from './components/RecurringTransactions'
 import { BankFeed } from './components/BankFeed'
 import { DimensionsPage } from './components/DimensionsPage'
+import { ContactsPage } from './components/ContactsPage'
+import { ContactDetail } from './components/ContactDetail'
 import { api } from './lib/api'
 
 function App() {
@@ -24,6 +26,7 @@ function App() {
   const [page, setPage] = useState<Page>('dashboard')
   const [version, setVersion] = useState(0)
   const [ledgerAccountId, setLedgerAccountId] = useState<string | null>(null)
+  const [selectedContactId, setSelectedContactId] = useState<string | null>(null)
 
   const refresh = () => setVersion((v) => v + 1)
 
@@ -44,7 +47,7 @@ function App() {
   }
 
   return (
-    <AppShell activePage={page} onNavigate={(p) => { setPage(p); setLedgerAccountId(null) }} onCloseFile={handleCloseFile}>
+    <AppShell activePage={page} onNavigate={(p) => { setPage(p); setLedgerAccountId(null); setSelectedContactId(null) }} onCloseFile={handleCloseFile}>
       {page === 'dashboard' && <Dashboard version={version} />}
       {page === 'accounts' && !ledgerAccountId && <AccountsListPage version={version} />}
       {page === 'accounts' && ledgerAccountId && (
@@ -62,6 +65,12 @@ function App() {
       {page === 'opening-balances' && <OpeningBalancesWizard version={version} onSaved={refresh} />}
       {page === 'fiscal-year-close' && <FiscalYearClose version={version} />}
       {page === 'dimensions' && <DimensionsPage version={version} />}
+      {page === 'contacts' && !selectedContactId && (
+        <ContactsPage version={version} onSelectContact={(id) => { setSelectedContactId(id); setPage('contacts-detail') }} />
+      )}
+      {(page === 'contacts-detail' || (page === 'contacts' && selectedContactId)) && selectedContactId && (
+        <ContactDetail contactId={selectedContactId} version={version} onBack={() => { setSelectedContactId(null); setPage('contacts') }} />
+      )}
       {page === 'settings' && <SettingsPage version={version} />}
     </AppShell>
   )
