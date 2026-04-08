@@ -4118,3 +4118,233 @@ pub async fn get_contact_balance(
 
     Ok(balance)
 }
+
+// ── Phase 34: General Ledger ─────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GLEntryDimension {
+    #[serde(rename = "type")]
+    pub dim_type: String,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GLEntry {
+    pub transaction_id: String,
+    pub transaction_line_id: String,
+    pub date: String,
+    pub reference: Option<String>,
+    pub description: String,
+    pub debit: i64,
+    pub credit: i64,
+    pub running_balance: i64,
+    pub contact_name: Option<String>,
+    pub dimensions: Vec<GLEntryDimension>,
+    pub is_void: bool,
+    pub journal_type: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GLAccountInfo {
+    pub id: String,
+    pub code: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub acct_type: String,
+    pub normal_balance: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GLAccountGroup {
+    pub account: GLAccountInfo,
+    pub opening_balance: i64,
+    pub entries: Vec<GLEntry>,
+    pub closing_balance: i64,
+    pub total_debits: i64,
+    pub total_credits: i64,
+}
+
+#[tauri::command]
+pub async fn get_general_ledger(
+    db: State<'_, DbState>,
+    account_id: Option<String>,
+    account_ids: Option<Vec<String>>,
+    start_date: Option<String>,
+    end_date: Option<String>,
+    contact_id: Option<String>,
+    journal_type: Option<String>,
+    include_void: Option<bool>,
+) -> Result<Vec<GLAccountGroup>, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    let include_void = include_void.unwrap_or(false);
+
+    // Get target accounts
+    let accounts_query = match (&account_id, &account_ids) {
+        (Some(id), _) => format!("SELECT id, code, name, type, normal_balance FROM accounts WHERE id = '{}' AND is_active = 1 ORDER BY code", id),
+        (None, Some(ids)) if !ids.is_empty() => {
+            let quoted: Vec<String> = ids.iter().map(|id| format!("'{}'", id)).collect();
+            format!("SELECT id, code, name, type, normal_balance FROM accounts WHERE id IN ({}) AND is_active = 1 ORDER BY code", quoted.join(","))
+        }
+        _ => "SELECT id, code, name, type, normal_balance FROM accounts WHERE is_active = 1 ORDER BY code".to_string(),
+    };
+
+    let mut acct_stmt = conn.prepare(&accounts_query).map_err(|e| e.to_string())?;
+    let acct_rows = acct_stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, String>(4)?,
+        ))
+    }).map_err(|e| e.to_string())?;
+
+    let mut target_accounts = Vec::new();
+    for row in acct_rows {
+        target_accounts.push(row.map_err(|e| e.to_string())?);
+    }
+
+    // Build contact filter
+    let contact_join = if contact_id.is_some() {
+        " JOIN transaction_contacts tc ON tc.transaction_id = t.id"
+    } else { "" };
+    let contact_where = if let Some(ref cid) = contact_id {
+        format!(" AND tc.contact_id = '{}'", cid)
+    } else { String::new() };
+
+    let mut result = Vec::new();
+
+    for (acct_id, code, name, acct_type, normal_balance) in &target_accounts {
+        let is_debit_norm = normal_balance == "DEBIT";
+
+        // Opening balance: sum of entries before start_date
+        let opening_balance = if let Some(ref sd) = start_date {
+            let void_clause = if !include_void { " AND t.is_void = 0" } else { "" };
+            let oq = format!(
+                "SELECT COALESCE(SUM(je.debit), 0), COALESCE(SUM(je.credit), 0)
+                 FROM journal_entries je
+                 JOIN transactions t ON je.transaction_id = t.id
+                 WHERE je.account_id = ?1 AND t.date < ?2{}",
+                void_clause
+            );
+            let (d, c): (i64, i64) = conn.query_row(&oq, params![acct_id, sd], |row| Ok((row.get(0)?, row.get(1)?)))
+                .map_err(|e| e.to_string())?;
+            if is_debit_norm { d - c } else { c - d }
+        } else { 0 };
+
+        // Build entry query with filters
+        let mut where_clauses = vec![format!("je.account_id = '{}'", acct_id)];
+        if !include_void {
+            where_clauses.push("t.is_void = 0".to_string());
+        }
+        if let Some(ref sd) = start_date {
+            where_clauses.push(format!("t.date >= '{}'", sd));
+        }
+        if let Some(ref ed) = end_date {
+            where_clauses.push(format!("t.date <= '{}'", ed));
+        }
+        if let Some(ref jt) = journal_type {
+            where_clauses.push(format!("t.journal_type = '{}'", jt));
+        }
+
+        let entry_query = format!(
+            "SELECT je.id, je.transaction_id, je.debit, je.credit, je.memo,
+                    t.date, t.reference, t.description, t.is_void, t.journal_type
+             FROM journal_entries je
+             JOIN transactions t ON je.transaction_id = t.id{}
+             WHERE {}{}
+             ORDER BY t.date, t.created_at, je.id",
+            contact_join,
+            where_clauses.join(" AND "),
+            contact_where
+        );
+
+        let mut entry_stmt = conn.prepare(&entry_query).map_err(|e| e.to_string())?;
+        let entry_rows = entry_stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,  // je.id
+                row.get::<_, String>(1)?,  // transaction_id
+                row.get::<_, i64>(2)?,     // debit
+                row.get::<_, i64>(3)?,     // credit
+                row.get::<_, Option<String>>(4)?, // memo
+                row.get::<_, String>(5)?,  // date
+                row.get::<_, Option<String>>(6)?, // reference
+                row.get::<_, String>(7)?,  // description
+                row.get::<_, i64>(8)?,     // is_void
+                row.get::<_, String>(9)?,  // journal_type
+            ))
+        }).map_err(|e| e.to_string())?;
+
+        let mut entries = Vec::new();
+        let mut running = opening_balance;
+        let mut total_debits: i64 = 0;
+        let mut total_credits: i64 = 0;
+
+        for row in entry_rows {
+            let (line_id, tx_id, debit, credit, memo, date, reference, description, is_void_i, jtype) =
+                row.map_err(|e| e.to_string())?;
+
+            if is_debit_norm {
+                running += debit - credit;
+            } else {
+                running += credit - debit;
+            }
+            total_debits += debit;
+            total_credits += credit;
+
+            // Get contact name
+            let contact_name: Option<String> = conn.query_row(
+                "SELECT c.name FROM transaction_contacts tc JOIN contacts c ON tc.contact_id = c.id WHERE tc.transaction_id = ?1 AND tc.role = 'PRIMARY' LIMIT 1",
+                params![tx_id],
+                |row| row.get(0),
+            ).ok();
+
+            // Get dimensions for this line
+            let mut dim_stmt = conn.prepare(
+                "SELECT d.type, d.name FROM transaction_line_dimensions tld JOIN dimensions d ON tld.dimension_id = d.id WHERE tld.transaction_line_id = ?1"
+            ).map_err(|e| e.to_string())?;
+            let dim_rows = dim_stmt.query_map(params![line_id], |row| {
+                Ok(GLEntryDimension { dim_type: row.get(0)?, name: row.get(1)? })
+            }).map_err(|e| e.to_string())?;
+            let mut dims = Vec::new();
+            for dr in dim_rows {
+                dims.push(dr.map_err(|e| e.to_string())?);
+            }
+
+            entries.push(GLEntry {
+                transaction_id: tx_id,
+                transaction_line_id: line_id,
+                date,
+                reference,
+                description: memo.unwrap_or(description),
+                debit,
+                credit,
+                running_balance: running,
+                contact_name,
+                dimensions: dims,
+                is_void: is_void_i != 0,
+                journal_type: jtype,
+            });
+        }
+
+        if !entries.is_empty() || opening_balance != 0 {
+            result.push(GLAccountGroup {
+                account: GLAccountInfo {
+                    id: acct_id.clone(),
+                    code: code.clone(),
+                    name: name.clone(),
+                    acct_type: acct_type.clone(),
+                    normal_balance: normal_balance.clone(),
+                },
+                opening_balance,
+                entries,
+                closing_balance: running,
+                total_debits,
+                total_credits,
+            });
+        }
+    }
+
+    Ok(result)
+}

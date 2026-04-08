@@ -33,6 +33,10 @@ import type {
   Contact,
   ContactLedgerEntry,
   ContactLedgerResult,
+  GLAccountGroup,
+  GLEntry,
+  GLEntryDimension,
+  GLFilters,
 } from '../../lib/api'
 
 interface StoredTransaction {
@@ -2367,6 +2371,155 @@ export class MockApi {
       is_balanced: total_assets === total_liabilities + total_equity,
       as_of_date: asOfDate,
     }
+  }
+
+  // ── Phase 34: General Ledger ───────────────────────────
+
+  getGeneralLedger(filters?: GLFilters): GLAccountGroup[] {
+    this.guardFileOpen()
+
+    const accountId = filters?.account_id
+    const accountIds = filters?.account_ids
+    const startDate = filters?.start_date
+    const endDate = filters?.end_date
+    const dimensionFilters = filters?.dimension_filters
+    const contactId = filters?.contact_id
+    const journalType = filters?.journal_type
+    const includeVoid = filters?.include_void ?? false
+
+    // Determine which accounts to include
+    let targetAccounts = this.accounts.filter((a) => a.is_active === 1)
+    if (accountId) {
+      targetAccounts = targetAccounts.filter((a) => a.id === accountId)
+    } else if (accountIds && accountIds.length > 0) {
+      const idSet = new Set(accountIds)
+      targetAccounts = targetAccounts.filter((a) => idSet.has(a.id))
+    }
+    targetAccounts.sort((a, b) => a.code.localeCompare(b.code))
+
+    // Build set of contact-linked transaction IDs if filtering by contact
+    const contactTxIds = contactId
+      ? new Set(this.transactionContacts.filter((tc) => tc.contact_id === contactId).map((tc) => tc.transaction_id))
+      : null
+
+    const result: GLAccountGroup[] = []
+
+    for (const acct of targetAccounts) {
+      const isDebitNorm = isDebitNormal(acct.type)
+
+      // Get all entries for this account
+      let allEntries = this.entries.filter((e) => e.account_id === acct.id)
+
+      // Compute opening balance: sum of entries BEFORE start_date
+      let openingBalance = 0
+      if (startDate) {
+        const priorEntries = allEntries.filter((e) => {
+          const tx = this.transactions.find((t) => t.id === e.transaction_id)
+          if (!tx) return false
+          if (tx.is_void && !includeVoid) return false
+          return tx.date < startDate
+        })
+        const priorDebit = priorEntries.reduce((s, e) => s + e.debit, 0)
+        const priorCredit = priorEntries.reduce((s, e) => s + e.credit, 0)
+        openingBalance = isDebitNorm ? priorDebit - priorCredit : priorCredit - priorDebit
+      }
+
+      // Filter entries by date range, void, journal type, contact
+      const filteredEntries = allEntries.filter((e) => {
+        const tx = this.transactions.find((t) => t.id === e.transaction_id)
+        if (!tx) return false
+        if (!includeVoid && tx.is_void) return false
+        if (startDate && tx.date < startDate) return false
+        if (endDate && tx.date > endDate) return false
+        if (journalType && tx.journal_type !== journalType) return false
+        if (contactTxIds && !contactTxIds.has(tx.id)) return false
+        return true
+      })
+
+      // Apply dimension filter if provided
+      let finalEntries = filteredEntries
+      if (dimensionFilters && dimensionFilters.length > 0) {
+        const entryIds = new Set(filteredEntries.map((e) => e.id))
+        const matchedIds = this.filterEntriesByDimensions(entryIds, dimensionFilters)
+        finalEntries = filteredEntries.filter((e) => matchedIds.has(e.id))
+      }
+
+      // Sort by date then by transaction created_at
+      finalEntries.sort((a, b) => {
+        const txA = this.transactions.find((t) => t.id === a.transaction_id)!
+        const txB = this.transactions.find((t) => t.id === b.transaction_id)!
+        const dateCmp = txA.date.localeCompare(txB.date)
+        if (dateCmp !== 0) return dateCmp
+        return txA.created_at - txB.created_at
+      })
+
+      // Build GL entries with running balance
+      let running = openingBalance
+      let totalDebits = 0
+      let totalCredits = 0
+      const glEntries: GLEntry[] = []
+
+      for (const entry of finalEntries) {
+        const tx = this.transactions.find((t) => t.id === entry.transaction_id)!
+
+        // Compute running balance
+        if (isDebitNorm) {
+          running += entry.debit - entry.credit
+        } else {
+          running += entry.credit - entry.debit
+        }
+        totalDebits += entry.debit
+        totalCredits += entry.credit
+
+        // Get contact name if linked
+        const tcLink = this.transactionContacts.find((tc) => tc.transaction_id === tx.id && tc.role === 'PRIMARY')
+        const contactName = tcLink ? (this.contacts.find((c) => c.id === tcLink.contact_id)?.name ?? null) : null
+
+        // Get dimensions for this line
+        const dims: GLEntryDimension[] = this.lineDimensions
+          .filter((ld) => ld.transaction_line_id === entry.id)
+          .map((ld) => {
+            const dim = this.dimensions.find((d) => d.id === ld.dimension_id)
+            return dim ? { type: dim.type, name: dim.name } : null
+          })
+          .filter((d): d is GLEntryDimension => d !== null)
+
+        glEntries.push({
+          transaction_id: tx.id,
+          transaction_line_id: entry.id,
+          date: tx.date,
+          reference: tx.reference,
+          description: entry.memo || tx.description,
+          debit: entry.debit,
+          credit: entry.credit,
+          running_balance: running,
+          contact_name: contactName,
+          dimensions: dims,
+          is_void: tx.is_void === 1,
+          journal_type: tx.journal_type,
+        })
+      }
+
+      // Only include account if it has entries or a non-zero opening balance
+      if (glEntries.length > 0 || openingBalance !== 0) {
+        result.push({
+          account: {
+            id: acct.id,
+            code: acct.code,
+            name: acct.name,
+            type: acct.type,
+            normal_balance: acct.normal_balance,
+          },
+          opening_balance: openingBalance,
+          entries: glEntries,
+          closing_balance: running,
+          total_debits: totalDebits,
+          total_credits: totalCredits,
+        })
+      }
+    }
+
+    return result
   }
 }
 

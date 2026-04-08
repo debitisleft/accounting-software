@@ -268,6 +268,54 @@ export interface ContactLedgerResult {
   net_balance: number
 }
 
+// ── General Ledger Types (Phase 34) ───────────────────
+
+export interface GLEntryDimension {
+  type: string
+  name: string
+}
+
+export interface GLEntry {
+  transaction_id: string
+  transaction_line_id: string
+  date: string
+  reference: string | null
+  description: string
+  debit: number
+  credit: number
+  running_balance: number
+  contact_name: string | null
+  dimensions: GLEntryDimension[]
+  is_void: boolean
+  journal_type: string
+}
+
+export interface GLAccountGroup {
+  account: {
+    id: string
+    code: string
+    name: string
+    type: string
+    normal_balance: string
+  }
+  opening_balance: number
+  entries: GLEntry[]
+  closing_balance: number
+  total_debits: number
+  total_credits: number
+}
+
+export interface GLFilters {
+  account_id?: string
+  account_ids?: string[]
+  start_date?: string
+  end_date?: string
+  dimension_filters?: DimensionFilter[]
+  contact_id?: string
+  journal_type?: string
+  include_void?: boolean
+}
+
 // ── API — the ONLY place invoke() is called ──────────────
 
 export const api = {
@@ -665,5 +713,18 @@ export const api = {
     invoke<number>('get_contact_balance', {
       contactId,
       asOf: asOf ?? null,
+    }),
+
+  // Phase 34: General Ledger
+  getGeneralLedger: (filters?: GLFilters) =>
+    invoke<GLAccountGroup[]>('get_general_ledger', {
+      accountId: filters?.account_id ?? null,
+      accountIds: filters?.account_ids ?? null,
+      startDate: filters?.start_date ?? null,
+      endDate: filters?.end_date ?? null,
+      dimensionFilters: filters?.dimension_filters ?? null,
+      contactId: filters?.contact_id ?? null,
+      journalType: filters?.journal_type ?? null,
+      includeVoid: filters?.include_void ?? false,
     }),
 }

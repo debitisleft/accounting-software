@@ -19,6 +19,7 @@ import { BankFeed } from './components/BankFeed'
 import { DimensionsPage } from './components/DimensionsPage'
 import { ContactsPage } from './components/ContactsPage'
 import { ContactDetail } from './components/ContactDetail'
+import { GeneralLedgerPage } from './components/GeneralLedgerPage'
 import { api } from './lib/api'
 
 function App() {
@@ -65,6 +66,7 @@ function App() {
       {page === 'opening-balances' && <OpeningBalancesWizard version={version} onSaved={refresh} />}
       {page === 'fiscal-year-close' && <FiscalYearClose version={version} />}
       {page === 'dimensions' && <DimensionsPage version={version} />}
+      {page === 'general-ledger' && <GeneralLedgerPage version={version} />}
       {page === 'contacts' && !selectedContactId && (
         <ContactsPage version={version} onSelectContact={(id) => { setSelectedContactId(id); setPage('contacts-detail') }} />
       )}

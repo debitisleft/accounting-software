@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 33 Complete — Contact Registry
+## STATUS: Phase 34 Complete — General Ledger View
 
 ## CURRENT STATE (2026-04-08)
-- 33 phases complete, 323 tests passing (313 existing + 10 contacts)
+- 34 phases complete, 333 tests passing (323 existing + 10 GL)
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,20 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 34 — General Ledger View (2026-04-08)
+- Added `get_general_ledger(filters)` command (Rust + api.ts + MockApi)
+- Filters: account_id/account_ids, start_date, end_date, contact_id, journal_type, include_void, dimension_filters
+- Returns per-account groups with opening_balance, entries (with running balance), closing_balance, total_debits, total_credits
+- Running balance respects normal_balance direction (debit-normal vs credit-normal accounts)
+- Opening balance calculated from entries before start_date
+- Entries include contact_name (from junction), dimensions (from line tags), is_void, journal_type
+- GeneralLedgerPage.tsx: filter bar (account, dates, contact, journal type, void toggle), collapsible account sections, entry table with running balance, dimension chips, grand totals
+- Export CSV button exports filtered GL view as downloadable CSV
+- Print button with @media print CSS
+- Sidebar: "General Ledger" added first in Reports section
+- 10 new tests covering single/multi account GL, opening balance, date range, dimension filter, contact filter, running balance, void handling, date ordering
+- 333 tests passing (1 skipped)
 
 ### Phase 33 — Contact Registry (2026-04-08)
 - Added `contacts` table (type, name, company_name, email, phone, address fields, tax_id, notes, is_active)

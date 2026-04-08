@@ -17,6 +17,7 @@ export type Page =
   | 'dimensions'
   | 'contacts'
   | 'contacts-detail'
+  | 'general-ledger'
   | 'settings'
 
 interface SidebarItem {
@@ -57,6 +58,7 @@ const sections: SidebarSection[] = [
   {
     title: 'Reports',
     items: [
+      { id: 'general-ledger', label: 'General Ledger' },
       { id: 'trial-balance', label: 'Trial Balance' },
       { id: 'income-statement', label: 'Income Statement' },
       { id: 'balance-sheet', label: 'Balance Sheet' },
@@ -86,6 +88,7 @@ const shortLabels: Record<Page, string> = {
   dimensions: 'DM',
   contacts: 'CT',
   'contacts-detail': 'CD',
+  'general-ledger': 'GL',
   settings: 'S',
 }
 

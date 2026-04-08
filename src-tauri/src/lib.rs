@@ -101,6 +101,8 @@ pub fn run() {
             commands::unlink_transaction_contact,
             commands::get_contact_ledger,
             commands::get_contact_balance,
+            // Phase 34: General Ledger
+            commands::get_general_ledger,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
