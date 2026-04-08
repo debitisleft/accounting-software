@@ -103,6 +103,12 @@ pub fn run() {
             commands::get_contact_balance,
             // Phase 34: General Ledger
             commands::get_general_ledger,
+            // Phase 35: Document Attachments
+            commands::attach_document,
+            commands::list_documents,
+            commands::get_document_path,
+            commands::delete_document,
+            commands::get_document_count,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

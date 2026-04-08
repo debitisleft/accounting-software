@@ -37,6 +37,7 @@ import type {
   GLEntry,
   GLEntryDimension,
   GLFilters,
+  DocumentMeta,
 } from '../../lib/api'
 
 interface StoredTransaction {
@@ -113,6 +114,7 @@ export class MockApi {
   lineDimensions: { id: string; transaction_line_id: string; dimension_id: string }[] = []
   contacts: Contact[] = []
   transactionContacts: { id: string; transaction_id: string; contact_id: string; role: string }[] = []
+  documents: DocumentMeta[] = []
   recentFiles: RecentFile[] = []
   fileOpen = false
   currentPath: string | null = null
@@ -2520,6 +2522,94 @@ export class MockApi {
     }
 
     return result
+  }
+
+  // ── Phase 35: Document Attachments ─────────────────────
+
+  private validateEntity(entityType: string, entityId: string): void {
+    if (entityType === 'TRANSACTION') {
+      if (!this.transactions.find((t) => t.id === entityId)) {
+        throw new Error(`Transaction not found: ${entityId}`)
+      }
+    } else if (entityType === 'CONTACT') {
+      if (!this.contacts.find((c) => c.id === entityId)) {
+        throw new Error(`Contact not found: ${entityId}`)
+      }
+    } else if (entityType === 'ACCOUNT') {
+      if (!this.accounts.find((a) => a.id === entityId)) {
+        throw new Error(`Account not found: ${entityId}`)
+      }
+    } else {
+      throw new Error(`Invalid entity_type: ${entityType}`)
+    }
+  }
+
+  private guessMimeType(filename: string): string {
+    const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+    const mimeMap: Record<string, string> = {
+      pdf: 'application/pdf',
+      png: 'image/png',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      gif: 'image/gif',
+      csv: 'text/csv',
+      txt: 'text/plain',
+      doc: 'application/msword',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      xls: 'application/vnd.ms-excel',
+      xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    }
+    return mimeMap[ext] ?? 'application/octet-stream'
+  }
+
+  attachDocument(entityType: string, entityId: string, _filePath: string, filename: string, description?: string, fileSize?: number): string {
+    this.guardFileOpen()
+    this.validateEntity(entityType, entityId)
+
+    const id = this.genId()
+    const ext = filename.includes('.') ? '.' + filename.split('.').pop() : ''
+    const storedFilename = `${id.replace('mock-', '')}${ext}`
+
+    this.documents.push({
+      id,
+      entity_type: entityType,
+      entity_id: entityId,
+      filename,
+      stored_filename: storedFilename,
+      mime_type: this.guessMimeType(filename),
+      file_size_bytes: fileSize ?? 1024,
+      description: description ?? null,
+      uploaded_at: new Date().toISOString(),
+      uploaded_by: 'user',
+    })
+
+    return id
+  }
+
+  listDocuments(entityType: string, entityId: string): DocumentMeta[] {
+    this.guardFileOpen()
+    return this.documents
+      .filter((d) => d.entity_type === entityType && d.entity_id === entityId)
+      .sort((a, b) => b.uploaded_at.localeCompare(a.uploaded_at))
+  }
+
+  getDocumentPath(documentId: string): string {
+    this.guardFileOpen()
+    const doc = this.documents.find((d) => d.id === documentId)
+    if (!doc) throw new Error(`Document not found: ${documentId}`)
+    return `/fake/documents/2025/01/${doc.stored_filename}`
+  }
+
+  deleteDocument(documentId: string): void {
+    this.guardFileOpen()
+    const idx = this.documents.findIndex((d) => d.id === documentId)
+    if (idx === -1) throw new Error(`Document not found: ${documentId}`)
+    this.documents.splice(idx, 1)
+  }
+
+  getDocumentCount(entityType: string, entityId: string): number {
+    this.guardFileOpen()
+    return this.documents.filter((d) => d.entity_type === entityType && d.entity_id === entityId).length
   }
 }
 

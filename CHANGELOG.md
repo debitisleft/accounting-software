@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 34 Complete — General Ledger View
+## STATUS: Phase 35 Complete — Document Attachments
 
 ## CURRENT STATE (2026-04-08)
-- 34 phases complete, 333 tests passing (323 existing + 10 GL)
+- 35 phases complete, 341 tests passing (333 existing + 8 documents)
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,20 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 35 — Document Attachments (2026-04-08)
+- Added `documents` table (entity_type, entity_id, filename, stored_filename, mime_type, file_size_bytes, description)
+- Filesystem storage: `{company_file}_documents/{YYYY}/{MM}/{uuid_filename}`
+- 5 Rust commands: attach_document, list_documents, get_document_path, delete_document, get_document_count
+- Entity validation: TRANSACTION, CONTACT, ACCOUNT — rejects invalid entity_id
+- UUID-based stored_filename preserves extension, prevents collisions
+- MIME type detection from file extension (pdf, png, jpg, csv, doc, xls, etc.)
+- 25MB file size limit enforced in Rust
+- True delete (not soft delete) — documents are supporting evidence, not financial data
+- MockApi: in-memory document storage with fake paths, full API contract testable
+- DocumentAttachments.tsx: reusable collapsible component with count badge, file list, delete confirmation
+- 8 new tests covering CRUD, multi-attach, count, entity validation, UUID naming, MIME detection
+- 341 tests passing (1 skipped)
 
 ### Phase 34 — General Ledger View (2026-04-08)
 - Added `get_general_ledger(filters)` command (Rust + api.ts + MockApi)

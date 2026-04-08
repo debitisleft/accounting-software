@@ -206,6 +206,21 @@ fn create_tables(conn: &Connection) -> Result<()> {
 
         CREATE INDEX IF NOT EXISTS idx_tc_contact_id ON transaction_contacts(contact_id);
         CREATE INDEX IF NOT EXISTS idx_tc_transaction_id ON transaction_contacts(transaction_id);
+
+        CREATE TABLE IF NOT EXISTS documents (
+            id TEXT PRIMARY KEY,
+            entity_type TEXT NOT NULL CHECK(entity_type IN ('TRANSACTION','CONTACT','ACCOUNT')),
+            entity_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            stored_filename TEXT NOT NULL,
+            mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+            file_size_bytes INTEGER NOT NULL DEFAULT 0,
+            description TEXT,
+            uploaded_at TEXT NOT NULL DEFAULT (datetime('now')),
+            uploaded_by TEXT NOT NULL DEFAULT 'user'
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_documents_entity ON documents(entity_type, entity_id);
         "
     )?;
     Ok(())

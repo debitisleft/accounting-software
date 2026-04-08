@@ -4348,3 +4348,208 @@ pub async fn get_general_ledger(
 
     Ok(result)
 }
+
+// ── Phase 35: Document Attachments ───────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DocumentMeta {
+    pub id: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub filename: String,
+    pub stored_filename: String,
+    pub mime_type: String,
+    pub file_size_bytes: i64,
+    pub description: Option<String>,
+    pub uploaded_at: String,
+    pub uploaded_by: String,
+}
+
+fn guess_mime_type(filename: &str) -> String {
+    let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
+    match ext.as_str() {
+        "pdf" => "application/pdf",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "csv" => "text/csv",
+        "txt" => "text/plain",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        _ => "application/octet-stream",
+    }.to_string()
+}
+
+fn get_documents_dir(db: &DbState) -> Result<String, String> {
+    let path_guard = db.current_path.lock().map_err(|e| e.to_string())?;
+    let path = path_guard.as_ref().ok_or("No file is open")?;
+    Ok(format!("{}_documents", path.trim_end_matches(".sqlite")))
+}
+
+#[tauri::command]
+pub async fn attach_document(
+    db: State<'_, DbState>,
+    entity_type: String,
+    entity_id: String,
+    file_path: String,
+    filename: String,
+    description: Option<String>,
+) -> Result<String, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let valid_types = ["TRANSACTION", "CONTACT", "ACCOUNT"];
+    if !valid_types.contains(&entity_type.as_str()) {
+        return Err(format!("Invalid entity_type: {}", entity_type));
+    }
+
+    let table = match entity_type.as_str() {
+        "TRANSACTION" => "transactions",
+        "CONTACT" => "contacts",
+        "ACCOUNT" => "accounts",
+        _ => return Err("Invalid entity_type".to_string()),
+    };
+    let _: String = conn.query_row(
+        &format!("SELECT id FROM {} WHERE id = ?1", table),
+        params![entity_id],
+        |row| row.get(0),
+    ).map_err(|_| format!("{} not found: {}", entity_type, entity_id))?;
+
+    let source_path = std::path::Path::new(&file_path);
+    let file_size = std::fs::metadata(source_path)
+        .map(|m| m.len() as i64)
+        .unwrap_or(0);
+    if file_size > 25 * 1024 * 1024 {
+        return Err("File exceeds 25MB limit".to_string());
+    }
+
+    let id = Uuid::new_v4().to_string();
+    let ext = filename.rsplit('.').next().map(|e| format!(".{}", e)).unwrap_or_default();
+    let stored_filename = format!("{}{}", Uuid::new_v4(), ext);
+    let mime_type = guess_mime_type(&filename);
+    let now = Utc::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+
+    let docs_dir = get_documents_dir(&db)?;
+    let date_now = Utc::now();
+    let year_month_dir = format!("{}/{:04}/{:02}", docs_dir, date_now.format("%Y"), date_now.format("%m"));
+    std::fs::create_dir_all(&year_month_dir).map_err(|e| format!("Failed to create documents dir: {}", e))?;
+
+    let dest_path = format!("{}/{}", year_month_dir, stored_filename);
+    std::fs::copy(source_path, &dest_path).map_err(|e| format!("Failed to copy file: {}", e))?;
+
+    conn.execute(
+        "INSERT INTO documents (id, entity_type, entity_id, filename, stored_filename, mime_type, file_size_bytes, description, uploaded_at, uploaded_by)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'user')",
+        params![id, entity_type, entity_id, filename, stored_filename, mime_type, file_size, description, now],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(id)
+}
+
+#[tauri::command]
+pub async fn list_documents(
+    db: State<'_, DbState>,
+    entity_type: String,
+    entity_id: String,
+) -> Result<Vec<DocumentMeta>, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let mut stmt = conn.prepare(
+        "SELECT id, entity_type, entity_id, filename, stored_filename, mime_type, file_size_bytes, description, uploaded_at, uploaded_by
+         FROM documents WHERE entity_type = ?1 AND entity_id = ?2 ORDER BY uploaded_at DESC"
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(params![entity_type, entity_id], |row| {
+        Ok(DocumentMeta {
+            id: row.get(0)?,
+            entity_type: row.get(1)?,
+            entity_id: row.get(2)?,
+            filename: row.get(3)?,
+            stored_filename: row.get(4)?,
+            mime_type: row.get(5)?,
+            file_size_bytes: row.get(6)?,
+            description: row.get(7)?,
+            uploaded_at: row.get(8)?,
+            uploaded_by: row.get(9)?,
+        })
+    }).map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn get_document_path(
+    db: State<'_, DbState>,
+    document_id: String,
+) -> Result<String, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let (stored_filename, uploaded_at): (String, String) = conn.query_row(
+        "SELECT stored_filename, uploaded_at FROM documents WHERE id = ?1",
+        params![document_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(|_| format!("Document not found: {}", document_id))?;
+
+    let docs_dir = get_documents_dir(&db)?;
+    let year = &uploaded_at[0..4];
+    let month = &uploaded_at[5..7];
+    Ok(format!("{}/{}/{}/{}", docs_dir, year, month, stored_filename))
+}
+
+#[tauri::command]
+pub async fn delete_document(
+    db: State<'_, DbState>,
+    document_id: String,
+) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Get file path before deleting metadata
+    let result: Result<(String, String), _> = conn.query_row(
+        "SELECT stored_filename, uploaded_at FROM documents WHERE id = ?1",
+        params![document_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    );
+
+    if let Ok((stored_filename, uploaded_at)) = result {
+        let docs_dir = get_documents_dir(&db)?;
+        let year = &uploaded_at[0..4];
+        let month = &uploaded_at[5..7];
+        let file_path = format!("{}/{}/{}/{}", docs_dir, year, month, stored_filename);
+        let _ = std::fs::remove_file(&file_path);
+    }
+
+    let rows = conn.execute("DELETE FROM documents WHERE id = ?1", params![document_id])
+        .map_err(|e| e.to_string())?;
+    if rows == 0 {
+        return Err(format!("Document not found: {}", document_id));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_document_count(
+    db: State<'_, DbState>,
+    entity_type: String,
+    entity_id: String,
+) -> Result<i64, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM documents WHERE entity_type = ?1 AND entity_id = ?2",
+        params![entity_type, entity_id],
+        |row| row.get(0),
+    ).map_err(|e| e.to_string())?;
+
+    Ok(count)
+}

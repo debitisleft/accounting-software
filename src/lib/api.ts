@@ -316,6 +316,21 @@ export interface GLFilters {
   include_void?: boolean
 }
 
+// ── Document Attachment Types (Phase 35) ─────────────
+
+export interface DocumentMeta {
+  id: string
+  entity_type: string
+  entity_id: string
+  filename: string
+  stored_filename: string
+  mime_type: string
+  file_size_bytes: number
+  description: string | null
+  uploaded_at: string
+  uploaded_by: string
+}
+
 // ── API — the ONLY place invoke() is called ──────────────
 
 export const api = {
@@ -727,4 +742,26 @@ export const api = {
       journalType: filters?.journal_type ?? null,
       includeVoid: filters?.include_void ?? false,
     }),
+
+  // Phase 35: Document Attachments
+  attachDocument: (entityType: string, entityId: string, filePath: string, filename: string, description?: string) =>
+    invoke<string>('attach_document', {
+      entityType,
+      entityId,
+      filePath,
+      filename,
+      description: description ?? null,
+    }),
+
+  listDocuments: (entityType: string, entityId: string) =>
+    invoke<DocumentMeta[]>('list_documents', { entityType, entityId }),
+
+  getDocumentPath: (documentId: string) =>
+    invoke<string>('get_document_path', { documentId }),
+
+  deleteDocument: (documentId: string) =>
+    invoke<void>('delete_document', { documentId }),
+
+  getDocumentCount: (entityType: string, entityId: string) =>
+    invoke<number>('get_document_count', { entityType, entityId }),
 }
