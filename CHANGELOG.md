@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 36 Complete — V2 Audit Fixes
+## STATUS: Phase 37 In Progress — Packaging & Distribution
 
 ## CURRENT STATE (2026-04-08)
-- 36 phases complete, 352 tests passing (341 existing + 11 audit fixes)
+- 36 phases complete + Phase 37 partial, 352 tests passing
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,13 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 37 — Packaging & Distribution (2026-04-08, partial)
+- Updated tauri.conf.json: identifier com.bookkeeping.app, window 1200x800 default with 900x600 min, center on launch, bundle metadata (copyright, descriptions, category)
+- Created .github/workflows/build.yml: CI on push/PR, matrix (Ubuntu, macOS, Windows), Node+Rust setup, test+build+artifact upload
+- Created .github/workflows/release.yml: triggered by version tags, builds all platforms, creates GitHub Release draft via tauri-apps/tauri-action
+- Created docs/release-checklist.md: pre-release checks, build verification, smoke test steps
+- Remaining: app icon generation, cargo tauri build verification, README with screenshots
 
 ### Phase 36 — V2 Audit Fixes (2026-04-08)
 - Fixed: Duplicate opening balances now throw error instead of silently replacing — user must void existing entry first

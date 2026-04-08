@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Bookkeeping",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.bookkeeping.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,9 +12,12 @@
   "app": {
     "windows": [
       {
-        "title": "Bookkeeping App",
-        "width": 800,
-        "height": 600,
+        "title": "Bookkeeping",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true,
         "resizable": true,
         "fullscreen": false
       }
@@ -32,6 +35,10 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "copyright": "Copyright 2025",
+    "shortDescription": "Double-entry bookkeeping desktop app",
+    "longDescription": "A double-entry bookkeeping desktop application built with Tauri, React, and SQLite. Your data stays in standard .sqlite files that you own.",
+    "category": "Finance"
   }
 }

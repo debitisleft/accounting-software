@@ -256,22 +256,22 @@ See previous build-todo files for full history.
 **Goal:** Make the app installable. Tauri bundling for macOS, Windows, Linux.
 
 ### App Metadata
-- [ ] Update tauri.conf.json: productName, version "0.1.0", identifier (reverse-domain), description, license, copyright
-- [ ] Generate app icon (1024x1024 PNG → `cargo tauri icon` → src-tauri/icons/)
-- [ ] Window config: 1200x800 default, 900x600 min, centered
+- [x] Update tauri.conf.json: productName, version "0.1.0", identifier (reverse-domain), description, license, copyright
+- [ ] Generate app icon (1024x1024 PNG → `cargo tauri icon` → src-tauri/icons/) — deferred: requires icon asset
+- [x] Window config: 1200x800 default, 900x600 min, centered
 
 ### Build Verification
-- [ ] Run `cargo tauri build` successfully
+- [ ] Run `cargo tauri build` successfully — requires Rust toolchain with platform deps
 - [ ] Verify built binary launches, can create file, enter transaction, run report
 - [ ] Verify WelcomeScreen shows on fresh launch (no prior app data)
 
 ### CI/CD (GitHub Actions)
-- [ ] Create `.github/workflows/build.yml`: triggers on push to main + PRs, matrix (ubuntu, macos, windows), checkout → setup Node → setup Rust → install deps → run tests → cargo tauri build → upload artifacts
-- [ ] Create `.github/workflows/release.yml`: triggers on version tag (v*), builds all platforms, creates GitHub Release with attached binaries, uses tauri-apps/tauri-action
+- [x] Create `.github/workflows/build.yml`: triggers on push to main + PRs, matrix (ubuntu, macos, windows), checkout → setup Node → setup Rust → install deps → run tests → cargo tauri build → upload artifacts
+- [x] Create `.github/workflows/release.yml`: triggers on version tag (v*), builds all platforms, creates GitHub Release with attached binaries, uses tauri-apps/tauri-action
 
 ### Documentation
-- [ ] README.md: project description + philosophy, screenshots (3-4: welcome screen, register, balance sheet, GL), installation from Releases, building from source, architecture overview, contributing guidelines, license
-- [ ] docs/release-checklist.md: all tests pass, version bumped, changelog updated, builds succeed, smoke test (fresh install → create → enter → report), tag and push
+- [ ] README.md: project description + philosophy, screenshots, installation, building from source, architecture, contributing, license — deferred: needs screenshots from running app
+- [x] docs/release-checklist.md: all tests pass, version bumped, changelog updated, builds succeed, smoke test (fresh install → create → enter → report), tag and push
 
 ### Optional (defer if complex)
 - [ ] Auto-update via Tauri updater (GitHub Releases as update endpoint)
