@@ -257,7 +257,7 @@ See previous build-todo files for full history.
 
 ### App Metadata
 - [x] Update tauri.conf.json: productName, version "0.1.0", identifier (reverse-domain), description, license, copyright
-- [ ] Generate app icon (1024x1024 PNG → `cargo tauri icon` → src-tauri/icons/) — deferred: requires icon asset
+- [x] Generate app icon (1024x1024 PNG → `cargo tauri icon` → src-tauri/icons/) — ledger book icon generated for all platforms
 - [x] Window config: 1200x800 default, 900x600 min, centered
 
 ### Build Verification
