@@ -1,9 +1,9 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 35 Complete — Document Attachments
+## STATUS: Phase 36 Complete — V2 Audit Fixes
 
 ## CURRENT STATE (2026-04-08)
-- 35 phases complete, 341 tests passing (333 existing + 8 documents)
+- 36 phases complete, 352 tests passing (341 existing + 11 audit fixes)
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,
@@ -13,6 +13,16 @@
 - Stack: Tauri v2 + React + TypeScript + rusqlite + Vitest
 
 ## COMPLETED
+
+### Phase 36 — V2 Audit Fixes (2026-04-08)
+- Fixed: Duplicate opening balances now throw error instead of silently replacing — user must void existing entry first
+- Fixed: updateAccount rejects account type changes with "Account type cannot be changed after creation"
+- Fixed: updateAccount validates parent_id for circular references (depth-limited walk, cap at 10)
+- Verified: Zero-activity fiscal year close already works correctly (creates CLOSING tx with no entries)
+- Verified: Monthly recurrence end-of-month clamping already works correctly (Jan 31 → Feb 28, Mar 31 → Apr 30)
+- Updated existing test B10 to match new opening balance behavior (throw instead of replace)
+- 11 new tests covering all 5 audit findings
+- 352 tests passing (1 skipped)
 
 ### Phase 35 — Document Attachments (2026-04-08)
 - Added `documents` table (entity_type, entity_id, filename, stored_filename, mime_type, file_size_bytes, description)

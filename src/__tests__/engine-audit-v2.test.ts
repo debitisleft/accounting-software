@@ -390,18 +390,18 @@ describe('B: Opening Balances', () => {
     expect(tb.is_balanced).toBe(true)
   })
 
-  it('B10: entering opening balances twice REPLACES the first (no doubling)', () => {
+  it('B10: entering opening balances twice throws error (void first to re-enter)', () => {
     const cash = find(mock, '1000')
 
     mock.enterOpeningBalances([{ account_id: cash.id, balance: 100000 }], '2025-01-01')
-    const txId2 = mock.enterOpeningBalances([{ account_id: cash.id, balance: 200000 }], '2025-01-01')
 
-    // Second call replaces first — balance is 200000, not 300000
-    expect(mock.getAccountBalance(cash.id, '2025-01-01')).toBe(200000)
-    // Only one OPENING transaction should exist
-    const openingTxs = mock.transactions.filter((t) => t.journal_type === 'OPENING')
-    expect(openingTxs.length).toBe(1)
-    expect(openingTxs[0].id).toBe(txId2)
+    // Second call should throw — user must void first
+    expect(() =>
+      mock.enterOpeningBalances([{ account_id: cash.id, balance: 200000 }], '2025-01-01')
+    ).toThrow('Opening balances have already been entered')
+
+    // Original balance still intact
+    expect(mock.getAccountBalance(cash.id, '2025-01-01')).toBe(100000)
   })
 })
 

@@ -232,23 +232,23 @@ See previous build-todo files for full history.
 ## PHASE 36 — V2 Audit Fixes
 **Goal:** Fix the issues found in engine-audit-v2-results.md. All fixes in BOTH MockApi and Rust.
 
-- [ ] Fix: Duplicate opening balances prevention — check if OPENING transaction already exists before creating. Throw error "Opening balances have already been entered. Void the existing opening balance entry first if you need to re-enter."
-- [ ] Fix: Zero-activity fiscal year close — when no revenue/expense balances exist, create a CLOSING transaction with zero entries (or a memo-only entry) instead of throwing. Year is still marked as closed.
-- [ ] Fix: Circular parent reference validation — in createAccount and updateAccount, walk the parent chain when parent_id is provided. Reject if cycle detected. Safety cap at depth 10.
-- [ ] Fix: Explicit account type change protection — if updateAccount receives a type parameter, reject with "Account type cannot be changed after creation."
-- [ ] Fix: Monthly recurrence end-of-month clamping — if original template date is last day of month, next due date is last day of next month. If original day > days in target month, clamp to last day.
-- [ ] Test: enterOpeningBalances twice — second call throws error
-- [ ] Test: after voiding opening balance entry, new one can be entered
-- [ ] Test: close fiscal year with zero revenue/expense activity — succeeds
-- [ ] Test: zero-activity closing entry has journal_type CLOSING and appears in list_fiscal_year_closes
-- [ ] Test: A→B→A circular parent reference rejected on create
-- [ ] Test: A→B→C→A circular reference rejected on update
-- [ ] Test: valid 3-level hierarchy accepted
-- [ ] Test: attempting to update account type throws error
-- [ ] Test: Jan 31 monthly recurrence → Feb 28 (non-leap year)
-- [ ] Test: Mar 31 monthly recurrence → Apr 30
-- [ ] Test: Jan 15 monthly recurrence → Feb 15 (no clamping, unchanged)
-- [ ] CHECK: All V2 audit fixes applied, all tests pass, `npm run check` clean
+- [x] Fix: Duplicate opening balances prevention — check if OPENING transaction already exists before creating. Throw error "Opening balances have already been entered. Void the existing opening balance entry first if you need to re-enter."
+- [x] Fix: Zero-activity fiscal year close — when no revenue/expense balances exist, create a CLOSING transaction with zero entries (or a memo-only entry) instead of throwing. Year is still marked as closed.
+- [x] Fix: Circular parent reference validation — in createAccount and updateAccount, walk the parent chain when parent_id is provided. Reject if cycle detected. Safety cap at depth 10.
+- [x] Fix: Explicit account type change protection — if updateAccount receives a type parameter, reject with "Account type cannot be changed after creation."
+- [x] Fix: Monthly recurrence end-of-month clamping — if original template date is last day of month, next due date is last day of next month. If original day > days in target month, clamp to last day.
+- [x] Test: enterOpeningBalances twice — second call throws error
+- [x] Test: after voiding opening balance entry, new one can be entered
+- [x] Test: close fiscal year with zero revenue/expense activity — succeeds
+- [x] Test: zero-activity closing entry has journal_type CLOSING and appears in list_fiscal_year_closes
+- [x] Test: A→B→A circular parent reference rejected on create
+- [x] Test: A→B→C→A circular reference rejected on update
+- [x] Test: valid 3-level hierarchy accepted
+- [x] Test: attempting to update account type throws error
+- [x] Test: Jan 31 monthly recurrence → Feb 28 (non-leap year)
+- [x] Test: Mar 31 monthly recurrence → Apr 30
+- [x] Test: Jan 15 monthly recurrence → Feb 15 (no clamping, unchanged)
+- [x] CHECK: All V2 audit fixes applied, all tests pass, `npm run check` clean
 
 ---
 
@@ -280,8 +280,8 @@ See previous build-todo files for full history.
 
 ---
 
-## CURRENT PHASE: 36
-## LAST COMPLETED CHECK: Phase 35 — document attachments, 341 tests pass (2026-04-08)
+## CURRENT PHASE: 37
+## LAST COMPLETED CHECK: Phase 36 — V2 audit fixes, 352 tests pass (2026-04-08)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)

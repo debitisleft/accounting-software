@@ -952,9 +952,14 @@ export class MockApi {
     return id
   }
 
-  updateAccount(accountId: string, data: { name?: string; code?: string }): void {
+  updateAccount(accountId: string, data: { name?: string; code?: string; acctType?: string; parentId?: string }): void {
     const acct = this.accounts.find((a) => a.id === accountId)
     if (!acct) throw new Error(`Account not found: ${accountId}`)
+
+    // Reject account type changes
+    if (data.acctType !== undefined) {
+      throw new Error('Account type cannot be changed after creation')
+    }
 
     if (data.name !== undefined) {
       if (!data.name.trim()) throw new Error('Account name cannot be empty')
@@ -966,6 +971,22 @@ export class MockApi {
         throw new Error(`Account code '${data.code}' already exists`)
       }
       acct.code = data.code.trim()
+    }
+    if (data.parentId !== undefined) {
+      if (data.parentId) {
+        const parent = this.accounts.find((a) => a.id === data.parentId)
+        if (!parent) throw new Error(`Parent account not found: ${data.parentId}`)
+        // Walk parent chain to detect cycles
+        let current: string | null = data.parentId
+        let depth = 0
+        while (current) {
+          if (current === accountId) throw new Error('Circular parent reference detected')
+          const p = this.accounts.find((a) => a.id === current)
+          current = p?.parent_id ?? null
+          if (++depth > 10) throw new Error('Circular parent reference detected')
+        }
+      }
+      acct.parent_id = data.parentId
     }
   }
 
@@ -992,11 +1013,10 @@ export class MockApi {
     const obeAcct = this.accounts.find((a) => a.code === '3500')
     if (!obeAcct) throw new Error('Opening Balance Equity account not found')
 
-    // Remove any existing OPENING transaction (opening balances are a setup step, not financial event)
-    const existingOpening = this.transactions.find((t) => t.journal_type === 'OPENING')
+    // Check for existing non-voided OPENING transaction
+    const existingOpening = this.transactions.find((t) => t.journal_type === 'OPENING' && t.is_void === 0)
     if (existingOpening) {
-      this.entries = this.entries.filter((e) => e.transaction_id !== existingOpening.id)
-      this.transactions = this.transactions.filter((t) => t.id !== existingOpening.id)
+      throw new Error('Opening balances have already been entered. Void the existing opening balance entry first if you need to re-enter.')
     }
 
     const entries: { account_id: string; debit: number; credit: number; memo?: string }[] = []
