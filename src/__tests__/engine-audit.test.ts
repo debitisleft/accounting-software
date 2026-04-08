@@ -357,7 +357,7 @@ describe('Category B: Balance Calculations', () => {
     const notesPay = find('2500')
     const equity = find('3000')
     const draws = find('3100')
-    const retained = find('3200')
+    find('3200')
     const salesRev = find('4000')
     const serviceRev = find('4100')
     const interestInc = find('4200')
@@ -1083,7 +1083,6 @@ describe('Category F: Account Deactivation Edge Cases', () => {
   })
 
   it('F6: reactivated account can receive new transactions', () => {
-    const cash = find('1000')
     const savings = find('1020')
     const equity = find('3000')
 
@@ -1306,7 +1305,6 @@ describe('Category H: Concurrent / Conflicting Operations', () => {
   })
 
   it('H3: deactivating an account while a transaction referencing it is being created', () => {
-    const cash = find('1000')
     const savings = find('1020')
     const equity = find('3000')
 

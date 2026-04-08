@@ -6,7 +6,6 @@ describe('Phase 24 — Cash Flow Statement', () => {
   let cash: string
   let ar: string
   let equipment: string
-  let ap: string
   let revenue: string
   let rent: string
 
@@ -17,7 +16,6 @@ describe('Phase 24 — Cash Flow Statement', () => {
     cash = accounts.find((a) => a.code === '1000')!.id
     ar = accounts.find((a) => a.code === '1100')!.id
     equipment = accounts.find((a) => a.code === '1500')!.id
-    ap = accounts.find((a) => a.code === '2000')!.id
     revenue = accounts.find((a) => a.code === '4000')!.id
     rent = accounts.find((a) => a.code === '5100')!.id
 

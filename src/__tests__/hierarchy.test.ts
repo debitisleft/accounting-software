@@ -32,7 +32,6 @@ describe('Phase 25 — Account Hierarchy in Reports', () => {
   it('child account indented under parent in trial balance', () => {
     const tb = mock.getTrialBalance()
 
-    const parentRow = tb.rows.find((r) => r.account_id === parentAcctId)
     const childRow = tb.rows.find((r) => r.account_id === childAcctId)
 
     // Child should have depth 1 (parent is depth 0)

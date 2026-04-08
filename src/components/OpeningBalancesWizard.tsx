@@ -1,10 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api, type Account } from '../lib/api'
 
-function centsToStr(cents: number): string {
-  return (cents / 100).toFixed(2)
-}
-
 function strToCents(str: string): number {
   const trimmed = str.trim()
   if (trimmed === '') return 0

@@ -261,7 +261,7 @@ See previous build-todo files for full history.
 - [x] Window config: 1200x800 default, 900x600 min, centered
 
 ### Build Verification
-- [ ] Run `cargo tauri build` successfully — requires Rust toolchain with platform deps
+- [x] Run `cargo tauri build` successfully — Windows MSI + NSIS installers built
 - [ ] Verify built binary launches, can create file, enter transaction, run report
 - [ ] Verify WelcomeScreen shows on fresh launch (no prior app data)
 

@@ -697,7 +697,6 @@ describe('E: Cash Flow Statement', () => {
   })
 
   it('E3: operating includes AR changes', () => {
-    const cash = find(mock, '1000')
     const ar = find(mock, '1100')
     const sales = find(mock, '4000')
 

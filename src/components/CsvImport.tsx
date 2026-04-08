@@ -25,7 +25,7 @@ function parseCsv(text: string): string[][] {
 }
 
 export function CsvImport({ version, onImported }: { version: number; onImported: () => void }) {
-  const [csvText, setCsvText] = useState('')
+  const [_csvText, setCsvText] = useState('')
   const [rows, setRows] = useState<string[][]>([])
   const [headers, setHeaders] = useState<string[]>([])
   const [mapping, setMapping] = useState<ColumnMapping>({ date: null, description: null, account: null, debit: null, credit: null })

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { api, type Account, type Contact, type GLAccountGroup, type Dimension } from '../lib/api'
+import { api, type Account, type Contact, type GLAccountGroup } from '../lib/api'
 
 function formatCents(cents: number): string {
   if (cents === 0) return '-'
@@ -11,8 +11,6 @@ function formatCents(cents: number): string {
 export function GeneralLedgerPage({ version }: { version: number }) {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
-  const [dimensions, setDimensions] = useState<Dimension[]>([])
-  const [dimTypes, setDimTypes] = useState<string[]>([])
   const [glData, setGlData] = useState<GLAccountGroup[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -29,10 +27,7 @@ export function GeneralLedgerPage({ version }: { version: number }) {
   useEffect(() => {
     api.getAccounts().then(setAccounts).catch(() => {})
     api.listContacts(undefined, undefined, 1).then(setContacts).catch(() => {})
-    api.listDimensions().then((dims) => {
-      setDimensions(dims.filter((d) => d.is_active === 1))
-      setDimTypes([...new Set(dims.filter((d) => d.is_active === 1).map((d) => d.type))])
-    }).catch(() => {})
+    api.listDimensions().catch(() => {})
   }, [version])
 
   const runReport = useCallback(() => {

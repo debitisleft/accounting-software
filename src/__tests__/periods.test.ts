@@ -40,8 +40,6 @@ describe('Phase 16 — Period Management', () => {
 
   it('lock prevents new transactions in range', () => {
     mock.lockPeriodGlobal('2026-01-31')
-    const cash = findAccount('1000')
-    const equity = findAccount('3000')
 
     // Creating a new transaction with a date in locked period — the engine
     // doesn't block createTransaction directly (it creates, then check is on edit/void).

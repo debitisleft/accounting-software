@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api, type TransactionWithEntries, type Account, type AuditLogEntry, type JournalEntryInput } from '../lib/api'
 import { downloadCsv } from '../lib/download'
 

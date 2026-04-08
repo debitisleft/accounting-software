@@ -2250,7 +2250,7 @@ pub async fn list_transactions(
         param_values.push(Box::new(aid.clone()));
     }
     if let Some(ref memo) = memo_search {
-        where_clauses.push(format!("LOWER(t.description) LIKE ?{}", idx)); idx += 1;
+        where_clauses.push(format!("LOWER(t.description) LIKE ?{}", idx));
         param_values.push(Box::new(format!("%{}%", memo.to_lowercase())));
     }
 
@@ -3522,41 +3522,33 @@ pub async fn list_dimensions(
     let guard = get_conn(&db)?;
     let conn = guard.as_ref().unwrap();
 
-    let query = match &dim_type {
-        Some(_) => "SELECT id, type, name, code, parent_id, is_active, created_at FROM dimensions WHERE type = ?1 ORDER BY name",
-        None => "SELECT id, type, name, code, parent_id, is_active, created_at FROM dimensions ORDER BY type, name",
+    let (query, param_val) = match &dim_type {
+        Some(t) => (
+            format!("SELECT id, type, name, code, parent_id, is_active, created_at FROM dimensions WHERE type = '{}' ORDER BY name", t),
+            None,
+        ),
+        None => (
+            "SELECT id, type, name, code, parent_id, is_active, created_at FROM dimensions ORDER BY type, name".to_string(),
+            None::<String>,
+        ),
     };
+    let _ = param_val; // suppress unused warning
 
-    let mut stmt = conn.prepare(query).map_err(|e| e.to_string())?;
-    let rows = if let Some(ref t) = dim_type {
-        stmt.query_map(params![t], |row| {
-            Ok(Dimension {
-                id: row.get(0)?,
-                dim_type: row.get(1)?,
-                name: row.get(2)?,
-                code: row.get(3)?,
-                parent_id: row.get(4)?,
-                is_active: row.get(5)?,
-                created_at: row.get(6)?,
-                depth: 0,
-            })
-        }).map_err(|e| e.to_string())?
-    } else {
-        stmt.query_map([], |row| {
-            Ok(Dimension {
-                id: row.get(0)?,
-                dim_type: row.get(1)?,
-                name: row.get(2)?,
-                code: row.get(3)?,
-                parent_id: row.get(4)?,
-                is_active: row.get(5)?,
-                created_at: row.get(6)?,
-                depth: 0,
-            })
-        }).map_err(|e| e.to_string())?
-    };
+    let mut stmt = conn.prepare(&query).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| {
+        Ok(Dimension {
+            id: row.get(0)?,
+            dim_type: row.get(1)?,
+            name: row.get(2)?,
+            code: row.get(3)?,
+            parent_id: row.get(4)?,
+            is_active: row.get(5)?,
+            created_at: row.get(6)?,
+            depth: 0,
+        })
+    }).map_err(|e| e.to_string())?;
 
-    let mut dims = Vec::new();
+    let mut dims: Vec<Dimension> = Vec::new();
     for row in rows {
         dims.push(row.map_err(|e| e.to_string())?);
     }
@@ -3571,7 +3563,7 @@ pub async fn list_dimensions(
         let mut current = d.parent_id.clone();
         while let Some(ref pid) = current {
             depth += 1;
-            current = id_to_parent.get(pid).and_then(|p| p.clone());
+            current = id_to_parent.get(pid).cloned().flatten();
             if depth > 10 { break; }
         }
         d.depth = depth;

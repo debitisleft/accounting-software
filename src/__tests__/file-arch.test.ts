@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { MockApi, defaultSeedAccounts } from './mocks/api.mock'
+import { MockApi } from './mocks/api.mock'
 
 describe('Phase 18 — File-Based Architecture', () => {
   let mock: MockApi
