@@ -8,6 +8,7 @@ mod sdk_v1;
 mod permissions;
 mod hooks;
 mod events;
+mod ui_extensions;
 
 pub struct DbState {
     pub conn: Mutex<Option<rusqlite::Connection>>,
@@ -19,6 +20,9 @@ pub struct DbState {
     /// Phase 42: hook registry (sync, can reject) and async event bus.
     pub hook_registry: hooks::HookRegistry,
     pub event_bus: events::EventBus,
+    /// Phase 43: in-memory UI extension registry (nav items, settings panes,
+    /// transaction actions). Modules re-register on init.
+    pub ui_extensions: ui_extensions::UiExtensionRegistry,
     pub app_data_dir: String,
 }
 
@@ -49,6 +53,7 @@ pub fn run() {
                 service_registry: Mutex::new(HashMap::new()),
                 hook_registry: hooks::new_registry(),
                 event_bus: events::new_bus(),
+                ui_extensions: ui_extensions::new_registry(),
                 app_data_dir: app_data_dir.to_string_lossy().to_string(),
             });
 
@@ -191,6 +196,14 @@ pub fn run() {
             events::sdk_emit_event,
             events::list_subscriptions,
             events::get_recent_events,
+            // Phase 43: UI Isolation & Module Frame
+            ui_extensions::sdk_register_nav_item,
+            ui_extensions::sdk_register_settings_pane,
+            ui_extensions::sdk_register_transaction_action,
+            ui_extensions::get_nav_items,
+            ui_extensions::get_settings_panes,
+            ui_extensions::get_transaction_actions,
+            ui_extensions::get_module_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

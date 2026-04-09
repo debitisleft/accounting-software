@@ -152,6 +152,7 @@ export class MockApi {
     entry_point: string | null
     install_path: string | null
     status: string
+    trusted: number
     installed_at: string
     updated_at: string
     error_message: string | null
@@ -170,6 +171,11 @@ export class MockApi {
     { module_id: string; handler: (payload: unknown) => void }[]
   > = new Map()
   emittedEvents: { event_type: string; timestamp: string; data: unknown }[] = []
+  // Phase 43: UI Extensions
+  navItems: { module_id: string; label: string; icon: string | null; route: string }[] = []
+  settingsPanes: { module_id: string; label: string; route: string }[] = []
+  transactionActions: { module_id: string; label: string; action_id: string }[] = []
+  moduleFileSystem: Map<string, Record<string, string>> = new Map() // module_id -> {file_path: contents}
   private moduleRowSeq = 1
   private nextId = 1
   private auditSeq = 0
@@ -269,6 +275,10 @@ export class MockApi {
     this.hookHandlers = new Map()
     this.eventSubscribers = new Map()
     this.emittedEvents = []
+    this.navItems = []
+    this.settingsPanes = []
+    this.transactionActions = []
+    this.moduleFileSystem = new Map()
     // Retroactively record kernel migrations (matches Rust db.rs run_migrations)
     const kernelMigrations: [number, string][] = [
       [1, 'Initial kernel schema (accounts, transactions, journal_entries, settings)'],
@@ -3144,6 +3154,7 @@ export class MockApi {
       permissions?: string[]
       dependencies?: unknown[]
       entry_point?: string | null
+      trusted?: boolean
     },
     installPath?: string,
   ): typeof this.moduleRegistry[0] {
@@ -3175,6 +3186,7 @@ export class MockApi {
       entry_point: manifest.entry_point ?? null,
       install_path: installPath ?? null,
       status: 'active',
+      trusted: manifest.trusted ? 1 : 0,
       installed_at: now,
       updated_at: now,
       error_message: null,
@@ -3259,6 +3271,11 @@ export class MockApi {
       list.length = 0
       list.push(...filtered)
     }
+    // Phase 43: clear UI extensions for this module
+    this.navItems = this.navItems.filter((n) => n.module_id !== moduleId)
+    this.settingsPanes = this.settingsPanes.filter((s) => s.module_id !== moduleId)
+    this.transactionActions = this.transactionActions.filter((a) => a.module_id !== moduleId)
+    this.moduleFileSystem.delete(moduleId)
     // Remove from registry + clean migration_log + module_dependencies + pending
     this.moduleRegistry.splice(idx, 1)
     this.migrationLog = this.migrationLog.filter((l) => l.module_id !== alias)
@@ -3537,6 +3554,104 @@ export class MockApi {
         last_error: lastFailed?.error_message ?? null,
       }
     })
+  }
+
+  // ── Phase 43: UI Extensions + module file serving ──────
+
+  sdkRegisterNavItem(moduleId: string, label: string, icon?: string, route?: string): void {
+    this.guardFileOpen()
+    this.checkPermission(moduleId, 'ui:nav_item')
+    this.navItems = this.navItems.filter((n) => !(n.module_id === moduleId && n.label === label))
+    this.navItems.push({
+      module_id: moduleId,
+      label,
+      icon: icon ?? null,
+      route: route ?? `/module/${moduleId}`,
+    })
+  }
+
+  sdkRegisterSettingsPane(moduleId: string, label: string, route?: string): void {
+    this.guardFileOpen()
+    this.checkPermission(moduleId, 'ui:settings_pane')
+    this.settingsPanes = this.settingsPanes.filter((s) => !(s.module_id === moduleId && s.label === label))
+    this.settingsPanes.push({
+      module_id: moduleId,
+      label,
+      route: route ?? `/module/${moduleId}/settings`,
+    })
+  }
+
+  sdkRegisterTransactionAction(moduleId: string, label: string, actionId: string): void {
+    this.guardFileOpen()
+    this.checkPermission(moduleId, 'ui:transaction_action')
+    this.transactionActions = this.transactionActions.filter(
+      (a) => !(a.module_id === moduleId && a.action_id === actionId),
+    )
+    this.transactionActions.push({ module_id: moduleId, label, action_id: actionId })
+  }
+
+  getNavItems(): { module_id: string; label: string; icon: string | null; route: string }[] {
+    return [...this.navItems].sort(
+      (a, b) => a.module_id.localeCompare(b.module_id) || a.label.localeCompare(b.label),
+    )
+  }
+
+  getSettingsPanes(): { module_id: string; label: string; route: string }[] {
+    return [...this.settingsPanes].sort(
+      (a, b) => a.module_id.localeCompare(b.module_id) || a.label.localeCompare(b.label),
+    )
+  }
+
+  getTransactionActions(): { module_id: string; label: string; action_id: string }[] {
+    return [...this.transactionActions].sort(
+      (a, b) => a.module_id.localeCompare(b.module_id) || a.label.localeCompare(b.label),
+    )
+  }
+
+  /// Test helper: stage a module file for getModuleFile to return.
+  stageModuleFile(moduleId: string, filePath: string, content: string): void {
+    let fs = this.moduleFileSystem.get(moduleId)
+    if (!fs) {
+      fs = {}
+      this.moduleFileSystem.set(moduleId, fs)
+    }
+    fs[filePath] = content
+  }
+
+  getModuleFile(
+    moduleId: string,
+    filePath: string,
+  ): { mime_type: string; content: string; is_binary: boolean } {
+    this.guardFileOpen()
+    if (filePath.includes('..') || filePath.startsWith('/') || filePath.startsWith('\\')) {
+      throw new Error(`Invalid file path: ${filePath}`)
+    }
+    const module = this.moduleRegistry.find((m) => m.id === moduleId)
+    if (!module) throw new Error(`Module not found: ${moduleId}`)
+    const fs = this.moduleFileSystem.get(moduleId)
+    const content = fs?.[filePath]
+    if (content === undefined) throw new Error(`Failed to read ${filePath}: not found`)
+    const ext = filePath.split('.').pop()?.toLowerCase() ?? ''
+    const mime = (
+      {
+        html: 'text/html',
+        htm: 'text/html',
+        js: 'application/javascript',
+        mjs: 'application/javascript',
+        css: 'text/css',
+        json: 'application/json',
+        svg: 'image/svg+xml',
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+      } as Record<string, string>
+    )[ext] ?? 'application/octet-stream'
+    const isBinary =
+      !mime.startsWith('text/') &&
+      mime !== 'application/javascript' &&
+      mime !== 'application/json' &&
+      mime !== 'image/svg+xml'
+    return { mime_type: mime, content, is_binary: isBinary }
   }
 }
 

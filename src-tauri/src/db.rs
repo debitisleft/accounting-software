@@ -352,6 +352,7 @@ fn create_tables(conn: &Connection) -> Result<()> {
             entry_point TEXT,
             install_path TEXT,
             status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled','failed','uninstalling')),
+            trusted INTEGER NOT NULL DEFAULT 0,
             installed_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
             error_message TEXT
@@ -438,6 +439,22 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         conn.execute_batch("ALTER TABLE journal_entries ADD COLUMN is_reconciled INTEGER NOT NULL DEFAULT 0;")?;
     }
 
+    // Phase 43: add `trusted` column to module_registry if a Phase 40 file
+    // pre-dates the column.
+    let registry_exists: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='module_registry'",
+        [], |row| row.get(0),
+    ).unwrap_or(false);
+    if registry_exists {
+        let mr_cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(module_registry)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>>>()?;
+        if !mr_cols.iter().any(|c| c == "trusted") {
+            conn.execute_batch("ALTER TABLE module_registry ADD COLUMN trusted INTEGER NOT NULL DEFAULT 0;")?;
+        }
+    }
+
     // Phase 39: Retroactively record kernel migrations in migration_log
     // (only after the migration_log table itself exists). We treat the kernel
     // schema as a single "version 1" baseline. Future kernel changes will add
@@ -458,6 +475,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             (8, "Add migration_log, module_dependencies, module_pending_migrations"),
             (9, "Add module_registry (Phase 40 SDK v1)"),
             (10, "Add module_permissions (Phase 41 enforcer)"),
+            (11, "Add trusted column to module_registry (Phase 43 UI isolation)"),
         ];
         for (version, description) in kernel_migrations {
             conn.execute(

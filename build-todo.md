@@ -227,7 +227,7 @@
 
 ---
 
-## PHASE 43 — UI Isolation & Module Frame (Fix #5)
+## PHASE 43 — UI Isolation & Module Frame (Fix #5) ✅ COMPLETE
 **Goal:** Sandboxed iframe for module UI. postMessage bridge. UI Extension API for nav items, settings, transaction actions.
 
 ### ModuleFrame Component
@@ -433,8 +433,8 @@
 
 ---
 
-## CURRENT PHASE: 43
-## LAST COMPLETED CHECK: Phase 42 — hooks and events, 431 tests pass (2026-04-09)
+## CURRENT PHASE: 44
+## LAST COMPLETED CHECK: Phase 43 — UI isolation & module frame, 447 tests pass (2026-04-09)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)

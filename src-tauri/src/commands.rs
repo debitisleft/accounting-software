@@ -5458,6 +5458,12 @@ pub struct ModuleManifest {
     pub entry_point: Option<String>,
     #[serde(default)]
     pub migrations: Vec<serde_json::Value>,
+    /// Phase 43: trusted first-party modules render React directly without
+    /// the iframe sandbox. Third-party manifests are always treated as
+    /// untrusted regardless of what the manifest says — only the host
+    /// (or a separate signing/whitelist mechanism) can mark a module trusted.
+    #[serde(default)]
+    pub trusted: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -5474,6 +5480,7 @@ pub struct ModuleRegistryEntry {
     pub entry_point: Option<String>,
     pub install_path: Option<String>,
     pub status: String,
+    pub trusted: i64,
     pub installed_at: String,
     pub updated_at: String,
     pub error_message: Option<String>,
@@ -5497,15 +5504,16 @@ fn row_to_registry_entry(row: &rusqlite::Row) -> rusqlite::Result<ModuleRegistry
         entry_point: row.get(9)?,
         install_path: row.get(10)?,
         status: row.get(11)?,
-        installed_at: row.get(12)?,
-        updated_at: row.get(13)?,
-        error_message: row.get(14)?,
+        trusted: row.get(12)?,
+        installed_at: row.get(13)?,
+        updated_at: row.get(14)?,
+        error_message: row.get(15)?,
     })
 }
 
 const REGISTRY_COLUMNS: &str =
     "id, name, version, sdk_version, description, author, license, permissions, dependencies,
-     entry_point, install_path, status, installed_at, updated_at, error_message";
+     entry_point, install_path, status, trusted, installed_at, updated_at, error_message";
 
 #[tauri::command]
 pub async fn install_module(
@@ -5551,13 +5559,14 @@ pub async fn install_module(
     conn.execute(
         "INSERT INTO module_registry
          (id, name, version, sdk_version, description, author, license, permissions, dependencies,
-          entry_point, install_path, status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'active')",
+          entry_point, install_path, status, trusted)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'active', ?12)",
         params![
             manifest.id, manifest.name, manifest.version, manifest.sdk_version,
             manifest.description, manifest.author, manifest.license,
             perms_json, deps_json,
-            manifest.entry_point, install_path
+            manifest.entry_point, install_path,
+            if manifest.trusted { 1_i64 } else { 0_i64 }
         ],
     ).map_err(|e| format!("Failed to register module: {}", e))?;
 
@@ -5640,10 +5649,11 @@ pub async fn uninstall_module(
         }
     }
 
-    // Clear service registry, hooks, event subscriptions
+    // Clear service registry, hooks, event subscriptions, UI extensions
     crate::sdk_v1::unregister_module_services(&db, &module_id);
     crate::hooks::unregister_all_for_module(&db, &module_id);
     crate::events::unsubscribe_all_for_module(&db, &module_id);
+    crate::ui_extensions::unregister_all_for_module(&db, &module_id);
 
     // Remove from registry + clean migration_log + module_dependencies + pending
     {
@@ -5724,6 +5734,7 @@ pub async fn disable_module(
     crate::sdk_v1::unregister_module_services(&db, &module_id);
     crate::hooks::unregister_all_for_module(&db, &module_id);
     crate::events::unsubscribe_all_for_module(&db, &module_id);
+    crate::ui_extensions::unregister_all_for_module(&db, &module_id);
     Ok(())
 }
 

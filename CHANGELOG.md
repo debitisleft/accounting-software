@@ -1,14 +1,96 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 42 Complete — Hooks and Events
+## STATUS: Phase 43 Complete — UI Isolation & Module Frame
 
 ## CURRENT STATE (2026-04-09)
-- 42 phases complete, 431 tests passing (1 skipped)
-- Plugin architecture: directory format + module ATTACH + migration coordinator
-  + module_registry + frozen SDK v1 + service registry + permissions enforcer
-  + sync hook bus (can reject) + async event bus (fire-and-forget)
+- 43 phases complete, 447 tests passing (1 skipped)
+- Plugin architecture: directory format + ATTACH + migration coordinator +
+  module_registry + frozen SDK v1 + service registry + permissions enforcer
+  + sync hooks + async events + sandboxed iframe UI + UI extension registry
 
 ## COMPLETED
+
+### Phase 43 — UI Isolation & Module Frame (2026-04-09)
+Sandboxed iframe for module UI with zero DOM access to the host. Communication
+exclusively via postMessage. UI Extension API for nav items, settings panes,
+and transaction actions. Trusted flag for first-party React-direct rendering.
+
+**Schema:** `module_registry` gained a `trusted INTEGER NOT NULL DEFAULT 0`
+column. Idempotent ALTER TABLE in run_migrations for files created under
+Phase 40. Recorded as kernel migration v11.
+
+**src-tauri/src/ui_extensions.rs (NEW):** in-memory registry on DbState
+(`UiExtensionRegistry` with three Mutex<HashMap<module_id, Vec<…>>> maps for
+nav items, settings panes, transaction actions). Modules re-register on init.
+- 6 commands with permission enforcement: sdk_register_nav_item
+  (ui:nav_item), sdk_register_settings_pane (ui:settings_pane),
+  sdk_register_transaction_action (ui:transaction_action), get_nav_items,
+  get_settings_panes, get_transaction_actions
+- get_module_file(module_id, file_path) — reads from the module's install_path
+  with path-traversal rejection (`..`, `/`, `\`), MIME type detection by
+  extension, and hex-encoding for binary content (avoids adding base64 dep)
+- unregister_all_for_module() cleanup helper called from disable + uninstall
+
+**src/components/ModuleFrame.tsx (NEW):** React component that renders the
+module iframe with `sandbox="allow-scripts"` (NO `allow-same-origin` — zero
+DOM access to host). Bootstrap HTML injects `window.__MODULE_ID__` so the
+iframe knows its identity, then loads the module's frontend. Listens for
+postMessage events from the iframe and routes through the bridge dispatcher.
+Trusted modules render a React slot directly without the iframe. Error
+boundary shows fallback + Retry on crash.
+
+**src/lib/sdk-bridge.ts (NEW):** pure-function bridge dispatcher extracted
+from ModuleFrame so it's testable without a DOM:
+- `validateSdkCall(msg, expectedModuleId)` — rejects malformed messages,
+  module_id mismatch (anti-spoof), and methods not on a static allow-list of
+  ~36 SDK v1 surface methods. Host-only commands like `create_new_file` are
+  never callable from a module no matter what permissions are granted.
+- `dispatchSdkCall(call)` — forwards to Tauri invoke with module_id injected
+  from the iframe owner (defence in depth — never trusts the message field).
+- `handleIncomingMessage(msg, expectedModuleId)` — convenience: validate +
+  dispatch in one call, always returns a response message.
+
+**src/module-sdk/sdk.js (NEW):** module-side SDK shim. Runs INSIDE the iframe.
+Generates request_id, posts to `window.parent`, awaits matching `sdk_response`,
+times out after 30 seconds. Exposes a clean namespaced API: sdk.ledger.*,
+sdk.accounts.*, sdk.contacts.*, sdk.documents.*, sdk.reports.*, sdk.storage.*,
+sdk.hooks.*, sdk.events.*, sdk.services.*, sdk.ui.*. The only window-global
+side effect is `window.sdk` for ergonomic access.
+
+**src/module-sdk/theme.css (NEW):** design tokens (CSS custom properties) so
+modules inherit the host look without DOM access. Tokens for color, surface,
+text, primary, success/warning/danger, border, font, radius, spacing, shadows,
+plus a dark-mode override.
+
+**Lifecycle integration (commands.rs):** uninstall_module and disable_module
+now also call `ui_extensions::unregister_all_for_module` so a disabled module
+has zero footprint in the UI.
+
+**install_module manifest:** new optional `trusted` boolean field. Default
+false. Stored in the new `trusted` column. The host can additionally promote
+modules later via direct UPDATE.
+
+**MockApi parity:** all 6 UI-extension SDK methods, getModuleFile (with a
+`stageModuleFile` test helper since there's no real fs), trusted flag passes
+through install. Cleanup wired into uninstall.
+
+- 16 new tests in ui-isolation.test.ts: registerNavItem permission +
+  add/list, registerSettingsPane, registerTransactionAction, uninstall
+  cleanup, manifest trusted flag flows through, default-untrusted, bridge
+  validateSdkCall accepts well-formed message, rejects mismatched module_id
+  (anti-spoof), rejects methods not on allow-list, rejects malformed shapes,
+  30-second timeout simulation, getModuleFile returns staged content with
+  correct mime type, path traversal rejection, unknown module rejection,
+  per-extension mime detection (js/css/svg)
+- 447 tests passing (1 skipped); cargo check + npm run check clean
+
+**Deferred:** AppShell sidebar/Settings/TransactionRegister wiring to read
+from get_nav_items / get_settings_panes / get_transaction_actions, and the
+module page route (/module/{id}). The kernel-side data and bridge are fully
+in place; the React component tree edits are mechanical and will land with
+Phase 45's module manager UI work.
+
+
 
 ### Phase 42 — Hooks and Events (2026-04-09)
 Two distinct module-reactivity systems. Sync hooks run INSIDE the database

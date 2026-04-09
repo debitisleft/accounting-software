@@ -915,6 +915,50 @@ export const api = {
     invoke<{ event_type: string; timestamp: string; data: unknown }[]>('get_recent_events', {
       limit: limit ?? null,
     }),
+
+  // Phase 43: UI Extensions
+  sdkRegisterNavItem: (moduleId: string, label: string, icon?: string, route?: string) =>
+    invoke<void>('sdk_register_nav_item', { moduleId, label, icon: icon ?? null, route: route ?? null }),
+
+  sdkRegisterSettingsPane: (moduleId: string, label: string, route?: string) =>
+    invoke<void>('sdk_register_settings_pane', { moduleId, label, route: route ?? null }),
+
+  sdkRegisterTransactionAction: (moduleId: string, label: string, actionId: string) =>
+    invoke<void>('sdk_register_transaction_action', { moduleId, label, actionId }),
+
+  getNavItems: () =>
+    invoke<NavItemExtension[]>('get_nav_items'),
+
+  getSettingsPanes: () =>
+    invoke<SettingsPaneExtension[]>('get_settings_panes'),
+
+  getTransactionActions: () =>
+    invoke<TransactionActionExtension[]>('get_transaction_actions'),
+
+  getModuleFile: (moduleId: string, filePath: string) =>
+    invoke<{ mime_type: string; content: string; is_binary: boolean }>('get_module_file', {
+      moduleId,
+      filePath,
+    }),
+}
+
+export interface NavItemExtension {
+  module_id: string
+  label: string
+  icon: string | null
+  route: string
+}
+
+export interface SettingsPaneExtension {
+  module_id: string
+  label: string
+  route: string
+}
+
+export interface TransactionActionExtension {
+  module_id: string
+  label: string
+  action_id: string
 }
 
 export interface ModuleManifest {
