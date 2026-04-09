@@ -6,6 +6,8 @@ mod db;
 mod commands;
 mod sdk_v1;
 mod permissions;
+mod hooks;
+mod events;
 
 pub struct DbState {
     pub conn: Mutex<Option<rusqlite::Connection>>,
@@ -14,6 +16,9 @@ pub struct DbState {
     pub attached_modules: Mutex<Vec<String>>,
     /// Phase 40: in-memory service registry. Key is (module_id, service_name).
     pub service_registry: Mutex<HashMap<(String, String), sdk_v1::RegisteredService>>,
+    /// Phase 42: hook registry (sync, can reject) and async event bus.
+    pub hook_registry: hooks::HookRegistry,
+    pub event_bus: events::EventBus,
     pub app_data_dir: String,
 }
 
@@ -42,6 +47,8 @@ pub fn run() {
                 company_dir: Mutex::new(None),
                 attached_modules: Mutex::new(Vec::new()),
                 service_registry: Mutex::new(HashMap::new()),
+                hook_registry: hooks::new_registry(),
+                event_bus: events::new_bus(),
                 app_data_dir: app_data_dir.to_string_lossy().to_string(),
             });
 
@@ -175,6 +182,15 @@ pub fn run() {
             permissions::grant_module_permission,
             permissions::revoke_module_permission,
             permissions::get_module_permissions,
+            // Phase 42: Hooks & Events
+            hooks::sdk_register_hook,
+            hooks::sdk_unregister_hook,
+            hooks::list_hooks,
+            events::sdk_subscribe_event,
+            events::sdk_unsubscribe_event,
+            events::sdk_emit_event,
+            events::list_subscriptions,
+            events::get_recent_events,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

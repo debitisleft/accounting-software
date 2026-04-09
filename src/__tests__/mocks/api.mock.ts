@@ -160,6 +160,16 @@ export class MockApi {
   moduleSqliteFiles: Set<string> = new Set() // simulates filesystem .sqlite files
   // Phase 41: Permission enforcer
   modulePermissions: Map<string, Set<string>> = new Map()
+  // Phase 42: Hooks (sync, can reject) and Events (async, fire-and-forget)
+  hookHandlers: Map<
+    string,
+    { module_id: string; priority: number; handler: (ctx: unknown) => { allow: boolean; reason?: string } }[]
+  > = new Map()
+  eventSubscribers: Map<
+    string,
+    { module_id: string; handler: (payload: unknown) => void }[]
+  > = new Map()
+  emittedEvents: { event_type: string; timestamp: string; data: unknown }[] = []
   private moduleRowSeq = 1
   private nextId = 1
   private auditSeq = 0
@@ -256,6 +266,9 @@ export class MockApi {
     this.serviceRegistry = []
     this.moduleSqliteFiles = new Set()
     this.modulePermissions = new Map()
+    this.hookHandlers = new Map()
+    this.eventSubscribers = new Map()
+    this.emittedEvents = []
     // Retroactively record kernel migrations (matches Rust db.rs run_migrations)
     const kernelMigrations: [number, string][] = [
       [1, 'Initial kernel schema (accounts, transactions, journal_entries, settings)'],
@@ -384,6 +397,17 @@ export class MockApi {
     }
 
     const txId = this.genId()
+
+    // Phase 42: before_transaction_create hook (sync, can reject before write)
+    const beforeCtx = {
+      transaction_id: txId,
+      date: data.date,
+      description: data.description,
+      journal_type: journalType,
+      entries: data.entries,
+    }
+    this.runHooks('before_transaction_create', beforeCtx)
+
     this.transactions.push({
       id: txId,
       date: data.date,
@@ -407,6 +431,27 @@ export class MockApi {
         is_reconciled: 0,
       })
     }
+
+    // Phase 42: after_transaction_create hook (sync, still inside the txn —
+    // rejection rolls back the writes we just made above).
+    try {
+      this.runHooks('after_transaction_create', { ...beforeCtx, transaction_id: txId })
+    } catch (e) {
+      // Roll back
+      this.transactions = this.transactions.filter((t) => t.id !== txId)
+      this.entries = this.entries.filter((en) => en.transaction_id !== txId)
+      throw e
+    }
+
+    // Phase 42: emit transaction.created (fire-and-forget, after commit)
+    this.emit('transaction.created', {
+      transaction_id: txId,
+      date: data.date,
+      description: data.description,
+      journal_type: journalType,
+      line_count: data.entries.length,
+      total_amount: totalDebit,
+    })
 
     return txId
   }
@@ -776,8 +821,30 @@ export class MockApi {
       })
     }
 
+    // Phase 42: before_transaction_void hook
+    this.runHooks('before_transaction_void', { transaction_id: transactionId })
+
     tx.is_void = 1
     this.writeAuditLog(transactionId, 'voided', 'false', 'true')
+
+    try {
+      this.runHooks('after_transaction_void', {
+        transaction_id: transactionId,
+        void_transaction_id: voidTxId,
+      })
+    } catch (e) {
+      // Roll back: undo the void marker and remove the reversing tx
+      tx.is_void = 0
+      this.transactions = this.transactions.filter((t) => t.id !== voidTxId)
+      this.entries = this.entries.filter((en) => en.transaction_id !== voidTxId)
+      throw e
+    }
+
+    this.emit('transaction.voided', {
+      transaction_id: transactionId,
+      void_transaction_id: voidTxId,
+    })
+
     return voidTxId
   }
 
@@ -961,6 +1028,7 @@ export class MockApi {
       return // Duplicate — idempotent
     }
     this.globalLocks.push({ id: this.genId(), end_date: endDate, locked_at: Date.now() })
+    this.emit('period.locked', { end_date: endDate })
   }
 
   unlockPeriodGlobal(): void {
@@ -1039,6 +1107,12 @@ export class MockApi {
       cash_flow_category: null,
       depth: 0,
       created_at: Date.now(),
+    })
+    this.emit('account.created', {
+      account_id: id,
+      code: data.code,
+      name: data.name,
+      type: data.acctType,
     })
     return id
   }
@@ -3111,6 +3185,12 @@ export class MockApi {
     // Phase 41: grant declared permissions (consent UI runs in host BEFORE this)
     const granted = new Set<string>(manifest.permissions ?? [])
     this.modulePermissions.set(manifest.id, granted)
+    // Phase 42: emit module.installed
+    this.emit('module.installed', {
+      module_id: entry.id,
+      name: entry.name,
+      version: entry.version,
+    })
     return entry
   }
 
@@ -3168,6 +3248,17 @@ export class MockApi {
     this.serviceRegistry = this.serviceRegistry.filter((s) => s.module_id !== moduleId)
     // Phase 41: clear permissions
     this.modulePermissions.delete(moduleId)
+    // Phase 42: clear hooks + event subscriptions for this module
+    for (const list of this.hookHandlers.values()) {
+      const filtered = list.filter((h) => h.module_id !== moduleId)
+      list.length = 0
+      list.push(...filtered)
+    }
+    for (const list of this.eventSubscribers.values()) {
+      const filtered = list.filter((s) => s.module_id !== moduleId)
+      list.length = 0
+      list.push(...filtered)
+    }
     // Remove from registry + clean migration_log + module_dependencies + pending
     this.moduleRegistry.splice(idx, 1)
     this.migrationLog = this.migrationLog.filter((l) => l.module_id !== alias)
@@ -3175,6 +3266,8 @@ export class MockApi {
     this.moduleDependencies = this.moduleDependencies.filter(
       (d) => d.module_id !== alias && d.depends_on_module_id !== alias,
     )
+    // Phase 42: emit module.uninstalled
+    this.emit('module.uninstalled', { module_id: moduleId })
   }
 
   enableModule(moduleId: string): void {
@@ -3298,6 +3391,113 @@ export class MockApi {
   ): Record<string, unknown>[] {
     this.checkPermission(this.resolvePermissionId(moduleId), 'storage:own')
     return this.moduleQuery(moduleId, tableName, filters)
+  }
+
+  // ── Phase 42: Hook bus (sync) and Event bus (async) ─────
+
+  /// Register a sync hook handler. The mock takes a JS callback because there
+  /// is no iframe bridge in tests; in production (Phase 43) the kernel will
+  /// dispatch via postMessage and the handler is owned by the module iframe.
+  /// `priority` orders multiple registrations on the same hook (lower first).
+  /// Throws if the module hasn't been granted hooks:before_write.
+  registerHook(
+    moduleId: string,
+    hookType: string,
+    handler: (ctx: unknown) => { allow: boolean; reason?: string },
+    priority = 100,
+  ): void {
+    this.guardFileOpen()
+    this.checkPermission(moduleId, 'hooks:before_write')
+    const VALID = [
+      'before_transaction_create', 'after_transaction_create',
+      'before_transaction_void', 'after_transaction_void',
+      'before_account_update', 'after_account_update',
+    ]
+    if (!VALID.includes(hookType)) throw new Error(`Unknown hook type: ${hookType}`)
+    let list = this.hookHandlers.get(hookType)
+    if (!list) { list = []; this.hookHandlers.set(hookType, list) }
+    // One handler per (module, hook_type)
+    const filtered = list.filter((h) => h.module_id !== moduleId)
+    list.length = 0
+    list.push(...filtered, { module_id: moduleId, priority, handler })
+    list.sort((a, b) => a.priority - b.priority)
+  }
+
+  unregisterHook(moduleId: string, hookType: string): void {
+    this.guardFileOpen()
+    const list = this.hookHandlers.get(hookType)
+    if (!list) return
+    const filtered = list.filter((h) => h.module_id !== moduleId)
+    list.length = 0
+    list.push(...filtered)
+  }
+
+  /// Run all registered hooks for `hookType` in priority order. Throws on
+  /// the first rejection — `before_*` aborts the operation entirely;
+  /// `after_*` rejection rolls back any writes the caller has already done.
+  private runHooks(hookType: string, context: unknown): void {
+    const list = this.hookHandlers.get(hookType)
+    if (!list || list.length === 0) return
+    for (const h of list) {
+      const result = h.handler(context)
+      if (!result.allow) {
+        throw new Error(
+          `Hook '${hookType}' from module '${h.module_id}' rejected: ${result.reason ?? 'no reason given'}`,
+        )
+      }
+    }
+  }
+
+  /// Subscribe a JS callback to an event. Subscribers fire AFTER commit.
+  /// Errors thrown by handlers are LOGGED via emittedEvents.lastError tracking
+  /// but never propagate or stop other subscribers.
+  subscribeEvent(
+    moduleId: string,
+    eventType: string,
+    handler: (payload: unknown) => void,
+  ): void {
+    this.guardFileOpen()
+    this.checkPermission(moduleId, 'events:subscribe')
+    let list = this.eventSubscribers.get(eventType)
+    if (!list) { list = []; this.eventSubscribers.set(eventType, list) }
+    list.push({ module_id: moduleId, handler })
+  }
+
+  unsubscribeEvent(moduleId: string, eventType: string): void {
+    this.guardFileOpen()
+    const list = this.eventSubscribers.get(eventType)
+    if (!list) return
+    const filtered = list.filter((s) => s.module_id !== moduleId)
+    list.length = 0
+    list.push(...filtered)
+  }
+
+  /// Emit an event. Records it in the emissions buffer and fires every
+  /// subscriber fire-and-forget — handler errors are caught and ignored so
+  /// one bad subscriber cannot block others or roll back the operation.
+  emit(eventType: string, data: unknown): void {
+    this.emittedEvents.push({
+      event_type: eventType,
+      timestamp: new Date().toISOString(),
+      data,
+    })
+    const list = this.eventSubscribers.get(eventType)
+    if (!list) return
+    for (const sub of list) {
+      try { sub.handler(data) } catch { /* logged not propagated */ }
+    }
+  }
+
+  /// Modules can emit custom events through the SDK.
+  sdkEmitEvent(moduleId: string, eventType: string, payload: unknown): void {
+    this.guardFileOpen()
+    void moduleId // any installed module can emit a custom event
+    this.emit(eventType, payload)
+  }
+
+  getRecentEvents(limit?: number): { event_type: string; timestamp: string; data: unknown }[] {
+    const all = [...this.emittedEvents].reverse()
+    return limit ? all.slice(0, limit) : all
   }
 
   getMigrationStatus(moduleId?: string): {

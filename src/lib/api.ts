@@ -884,6 +884,37 @@ export const api = {
 
   getModulePermissions: (moduleId: string) =>
     invoke<string[]>('get_module_permissions', { moduleId }),
+
+  // Phase 42: Hooks (sync) and Events (async)
+  sdkRegisterHook: (moduleId: string, hookType: string, priority?: number) =>
+    invoke<void>('sdk_register_hook', {
+      moduleId,
+      hookType,
+      priority: priority ?? null,
+    }),
+
+  sdkUnregisterHook: (moduleId: string, hookType: string) =>
+    invoke<void>('sdk_unregister_hook', { moduleId, hookType }),
+
+  listHooks: () =>
+    invoke<{ module_id: string; hook_type: string; priority: number }[]>('list_hooks'),
+
+  sdkSubscribeEvent: (moduleId: string, eventType: string) =>
+    invoke<void>('sdk_subscribe_event', { moduleId, eventType }),
+
+  sdkUnsubscribeEvent: (moduleId: string, eventType: string) =>
+    invoke<void>('sdk_unsubscribe_event', { moduleId, eventType }),
+
+  sdkEmitEvent: (moduleId: string, eventType: string, payload: unknown) =>
+    invoke<void>('sdk_emit_event', { moduleId, eventType, payload }),
+
+  listSubscriptions: () =>
+    invoke<{ module_id: string; event_type: string }[]>('list_subscriptions'),
+
+  getRecentEvents: (limit?: number) =>
+    invoke<{ event_type: string; timestamp: string; data: unknown }[]>('get_recent_events', {
+      limit: limit ?? null,
+    }),
 }
 
 export interface ModuleManifest {

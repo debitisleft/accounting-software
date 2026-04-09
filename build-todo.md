@@ -188,7 +188,7 @@
 
 ---
 
-## PHASE 42 — Hooks and Events (Fix #3)
+## PHASE 42 — Hooks and Events (Fix #3) ✅ COMPLETE
 **Goal:** Sync hooks inside DB transactions (can reject). Async events after commit (fire-and-forget).
 
 ### Sync Hook Bus
@@ -433,8 +433,8 @@
 
 ---
 
-## CURRENT PHASE: 42
-## LAST COMPLETED CHECK: Phase 41 — permission enforcer, 415 tests pass (2026-04-09)
+## CURRENT PHASE: 43
+## LAST COMPLETED CHECK: Phase 42 — hooks and events, 431 tests pass (2026-04-09)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)

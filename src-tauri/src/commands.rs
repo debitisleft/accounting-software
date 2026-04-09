@@ -543,16 +543,29 @@ pub async fn create_transaction(
         Ok(())
     })();
 
-    match insert_result {
+    let final_result = match insert_result {
         Ok(()) => {
             conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
-            Ok(tx_id)
+            Ok(tx_id.clone())
         }
         Err(e) => {
             let _ = conn.execute("ROLLBACK", []);
             Err(e)
         }
+    };
+
+    drop(guard);
+    if final_result.is_ok() {
+        crate::events::emit_event(&db, "transaction.created", serde_json::json!({
+            "transaction_id": tx_id,
+            "date": date,
+            "description": description,
+            "journal_type": jtype,
+            "line_count": entries.len(),
+            "total_amount": total_debit,
+        }));
     }
+    final_result
 }
 
 #[tauri::command]
@@ -1214,6 +1227,14 @@ pub async fn create_account(
         params![id, code.trim(), name.trim(), acct_type, nb, parent_id, now],
     ).map_err(|e| e.to_string())?;
 
+    let payload = serde_json::json!({
+        "account_id": id,
+        "code": code,
+        "name": name,
+        "type": acct_type,
+    });
+    drop(guard);
+    crate::events::emit_event(&db, "account.created", payload);
     Ok(id)
 }
 
@@ -2702,10 +2723,23 @@ pub async fn void_transaction(
         Ok(void_tx_id)
     })();
 
-    match result {
-        Ok(id) => { conn.execute("COMMIT", []).map_err(|e| e.to_string())?; Ok(id) }
+    let final_result = match result {
+        Ok(id) => {
+            conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
+            Ok(id)
+        }
         Err(e) => { let _ = conn.execute("ROLLBACK", []); Err(e) }
+    };
+
+    drop(stmt);
+    drop(guard);
+    if let Ok(ref void_id) = final_result {
+        crate::events::emit_event(&db, "transaction.voided", serde_json::json!({
+            "transaction_id": transaction_id,
+            "void_transaction_id": void_id,
+        }));
     }
+    final_result
 }
 
 #[derive(Debug, Serialize)]
@@ -3262,6 +3296,9 @@ pub async fn lock_period_global(
         params![id, end_date, now],
     ).map_err(|e| e.to_string())?;
 
+    let payload = serde_json::json!({ "end_date": end_date });
+    drop(guard);
+    crate::events::emit_event(&db, "period.locked", payload);
     Ok(())
 }
 
@@ -5541,6 +5578,14 @@ pub async fn install_module(
         row_to_registry_entry,
     ).map_err(|e| e.to_string())?;
 
+    let payload = serde_json::json!({
+        "module_id": entry.id,
+        "name": entry.name,
+        "version": entry.version,
+    });
+    drop(guard);
+    crate::events::emit_event(&db, "module.installed", payload);
+
     Ok(entry)
 }
 
@@ -5595,25 +5640,33 @@ pub async fn uninstall_module(
         }
     }
 
-    // Clear service registry
+    // Clear service registry, hooks, event subscriptions
     crate::sdk_v1::unregister_module_services(&db, &module_id);
+    crate::hooks::unregister_all_for_module(&db, &module_id);
+    crate::events::unsubscribe_all_for_module(&db, &module_id);
 
     // Remove from registry + clean migration_log + module_dependencies + pending
-    let guard = get_conn(&db)?;
-    let conn = guard.as_ref().unwrap();
-    // Phase 41: explicitly clear permissions before deleting registry row
-    conn.execute("DELETE FROM module_permissions WHERE module_id = ?1", params![module_id])
-        .map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM module_registry WHERE id = ?1", params![module_id])
-        .map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM migration_log WHERE module_id = ?1", params![alias])
-        .map_err(|e| e.to_string())?;
-    conn.execute("DELETE FROM module_pending_migrations WHERE module_id = ?1", params![alias])
-        .map_err(|e| e.to_string())?;
-    conn.execute(
-        "DELETE FROM module_dependencies WHERE module_id = ?1 OR depends_on_module_id = ?1",
-        params![alias],
-    ).map_err(|e| e.to_string())?;
+    {
+        let guard = get_conn(&db)?;
+        let conn = guard.as_ref().unwrap();
+        // Phase 41: explicitly clear permissions before deleting registry row
+        conn.execute("DELETE FROM module_permissions WHERE module_id = ?1", params![module_id])
+            .map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM module_registry WHERE id = ?1", params![module_id])
+            .map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM migration_log WHERE module_id = ?1", params![alias])
+            .map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM module_pending_migrations WHERE module_id = ?1", params![alias])
+            .map_err(|e| e.to_string())?;
+        conn.execute(
+            "DELETE FROM module_dependencies WHERE module_id = ?1 OR depends_on_module_id = ?1",
+            params![alias],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    crate::events::emit_event(&db, "module.uninstalled", serde_json::json!({
+        "module_id": module_id,
+    }));
 
     Ok(())
 }
@@ -5669,6 +5722,8 @@ pub async fn disable_module(
         attached.retain(|m| m != &alias);
     }
     crate::sdk_v1::unregister_module_services(&db, &module_id);
+    crate::hooks::unregister_all_for_module(&db, &module_id);
+    crate::events::unsubscribe_all_for_module(&db, &module_id);
     Ok(())
 }
 

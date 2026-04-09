@@ -1,14 +1,89 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 41 Complete — Permission Enforcer
+## STATUS: Phase 42 Complete — Hooks and Events
 
 ## CURRENT STATE (2026-04-09)
-- 41 phases complete, 415 tests passing (1 skipped)
+- 42 phases complete, 431 tests passing (1 skipped)
 - Plugin architecture: directory format + module ATTACH + migration coordinator
-  + module_registry + frozen SDK v1 contract + service registry + per-scope
-  permission enforcement on every SDK call
+  + module_registry + frozen SDK v1 + service registry + permissions enforcer
+  + sync hook bus (can reject) + async event bus (fire-and-forget)
 
 ## COMPLETED
+
+### Phase 42 — Hooks and Events (2026-04-09)
+Two distinct module-reactivity systems. Sync hooks run INSIDE the database
+transaction and can reject (before_*) or roll back (after_*). Async events
+fire AFTER commit, fire-and-forget — subscriber errors are logged, never
+propagated, never roll back the originating operation.
+
+**src-tauri/src/hooks.rs (NEW):** in-memory hook registry on DbState
+(`HookRegistry: Mutex<HashMap<hook_type, Vec<RegisteredHook>>>`). Six hook
+types defined: before/after_transaction_create, before/after_transaction_void,
+before/after_account_update. Commands: sdk_register_hook (requires
+hooks:before_write), sdk_unregister_hook, list_hooks. `run_hooks(db,
+hook_type, ctx)` is called by engine commands at integration points; in
+Phase 42 it returns Ok(()) immediately because there is no live cross-process
+channel into module iframes yet — Phase 43 (UI Isolation) will replace it
+with a postMessage round-trip that can return rejection. The integration
+sites are in place so Phase 43 just needs to wire the bridge.
+
+**src-tauri/src/events.rs (NEW):** async event bus on DbState (`EventBus`
+with subscribers map + capped emissions buffer of 256 most-recent events).
+14 event types: transaction.created/voided/updated, account.created/updated/
+deactivated, contact.created/updated, period.locked/unlocked, module.installed/
+uninstalled, reconciliation.completed, fiscal_year.closed. Commands:
+sdk_subscribe_event (requires events:subscribe), sdk_unsubscribe_event,
+sdk_emit_event (any installed module can emit a custom event),
+list_subscriptions, get_recent_events. `emit_event(db, type, data)` records
+to the buffer immediately; Phase 43 will iterate subscribers and postMessage.
+
+**Engine integration (commands.rs):** every successful commit now emits
+the appropriate event, taken outside the rusqlite borrow lifetimes via
+`drop(stmt); drop(guard);` then `emit_event(...)`:
+- create_transaction → transaction.created (with date, description,
+  journal_type, line_count, total_amount)
+- void_transaction → transaction.voided (with original + void tx ids)
+- create_account → account.created
+- lock_period_global → period.locked
+- install_module → module.installed
+- uninstall_module → module.uninstalled (and now also clears hooks +
+  event subscriptions for the module)
+- disable_module → also clears hooks + event subscriptions
+
+**MockApi parity:** since the Rust kernel can't actually invoke JS handlers
+in Phase 42, the **MockApi is where the full hook/event semantics live for
+tests**:
+- `hookHandlers: Map<hook_type, [{module_id, priority, handler}]>` —
+  registerHook accepts a real JS callback. runHooks iterates in priority
+  order and throws on the first rejection.
+- `eventSubscribers: Map<event_type, [{module_id, handler}]>` plus
+  `emittedEvents` buffer. emit() iterates subscribers wrapped in try/catch
+  so one bad handler can't block others or roll back the operation.
+- createTransaction now calls before_transaction_create → write → after_…
+  with full rollback on after_ rejection. voidTransaction similarly.
+- createAccount, lockPeriodGlobal, installModule, uninstallModule all emit
+  the matching event so test subscribers can verify routing.
+
+**Permission enforcement:** registerHook checks hooks:before_write on the
+caller. subscribeEvent checks events:subscribe. uninstall/disable Module
+clears hooks + event subscriptions for the affected module so a disabled
+module is fully inert.
+
+**api.ts wrappers:** all 8 new commands (sdkRegisterHook, sdkUnregisterHook,
+listHooks, sdkSubscribeEvent, sdkUnsubscribeEvent, sdkEmitEvent,
+listSubscriptions, getRecentEvents).
+
+- 16 new tests in hooks-events.test.ts: hook receives context, before_
+  rejection prevents write, after_ rejection rolls back, multiple hooks in
+  priority order, hook permission enforcement, before_transaction_void
+  rejection, event subscriber receives correct payload, error in one
+  subscriber doesn't block others, error in subscriber doesn't roll back tx,
+  unsubscribe stops events, custom event round-trip between modules,
+  transaction.voided event, period.locked event, account.created event,
+  module.installed event recorded, subscriber permission enforcement
+- 431 tests passing (1 skipped); cargo check + npm run check clean
+
+
 
 ### Phase 41 — Permission Enforcer (2026-04-09)
 Granular per-scope permission checks on every SDK v1 call. Modules declare
