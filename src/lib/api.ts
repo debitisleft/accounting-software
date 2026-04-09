@@ -804,4 +804,41 @@ export const api = {
 
   moduleExecuteMigration: (moduleId: string, version: string, sql: string) =>
     invoke<void>('module_execute_migration', { moduleId, version, sql }),
+
+  // Phase 39: Migration Coordinator
+  registerModuleMigrations: (
+    moduleId: string,
+    migrations: { version: number; description: string; sql: string; checksum: string }[],
+  ) => invoke<{ version: number; description: string; sql: string; checksum: string }[]>(
+    'register_module_migrations',
+    { moduleId, migrations },
+  ),
+
+  runModuleMigrations: (moduleId: string) =>
+    invoke<{ applied: number[]; failed: number | null; error: string | null }>(
+      'run_module_migrations',
+      { moduleId },
+    ),
+
+  getMigrationStatus: (moduleId?: string) =>
+    invoke<MigrationStatus[]>('get_migration_status', { moduleId: moduleId ?? null }),
+
+  registerModuleDependency: (moduleId: string, dependsOnModuleId: string, minVersion?: number) =>
+    invoke<void>('register_module_dependency', {
+      moduleId,
+      dependsOnModuleId,
+      minVersion: minVersion ?? null,
+    }),
+
+  checkDependencyGraph: () =>
+    invoke<string[]>('check_dependency_graph'),
+}
+
+export interface MigrationStatus {
+  module_id: string
+  latest_version: number
+  applied_count: number
+  pending_count: number
+  failed_count: number
+  last_error: string | null
 }

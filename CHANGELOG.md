@@ -1,13 +1,71 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 38 Complete — Storage Sandbox & Directory Structure
+## STATUS: Phase 39 Complete — Migration Coordinator
 
 ## CURRENT STATE (2026-04-09)
-- 38 phases complete, 370 tests passing (1 skipped)
-- Plugin architecture foundation: company files are now directories with kernel
-  company.sqlite + per-module .sqlite via ATTACH + documents/ + backups/
+- 39 phases complete, 383 tests passing (1 skipped)
+- Plugin architecture foundation in place: directory format + module ATTACH +
+  versioned migration coordinator with dependency enforcement
 
 ## COMPLETED
+
+### Phase 39 — Migration Coordinator (2026-04-09)
+Per-module versioned migrations with dependency enforcement, checksum-based
+tamper detection, and graceful per-module failure handling. Foundation for
+SDK v1 module installs in Phase 40.
+
+**Schema (3 new tables in company.sqlite):**
+- `migration_log` — id, module_id, version, description, checksum, applied_at,
+  success, error_message; UNIQUE(module_id, version). Tracks every applied or
+  failed migration. The kernel uses module_id='kernel'.
+- `module_dependencies` — id, module_id, depends_on_module_id, min_version;
+  UNIQUE pair. Drives topological run order.
+- `module_pending_migrations` — staged-but-unapplied migrations registered by
+  modules before run.
+
+**5 new Rust commands (commands.rs):**
+- `register_module_migrations(module_id, migrations[])` — stages migrations.
+  Rejects re-registration with a different checksum on a successfully-applied
+  version (tamper detection). Returns the list of still-pending migrations.
+- `run_module_migrations(module_id)` — verifies all dependencies are satisfied
+  (each `depends_on` module must have applied >= `min_version`), runs the
+  topological-sort cycle check, auto-attaches the module's .sqlite if needed,
+  then applies each pending migration in version order inside its own
+  `SAVEPOINT mig_<id>_<version>`. On failure: ROLLBACK TO + RELEASE the
+  savepoint, write a failure row to `migration_log`, return early — does NOT
+  advance to subsequent versions.
+- `get_migration_status(module_id?)` — returns latest applied version, applied
+  count, pending count, failed count, and last error message; per module if
+  given, otherwise across all modules (kernel + every module that's appeared
+  in either log or pending tables).
+- `register_module_dependency(module_id, depends_on_module_id, min_version?)`
+  — UPSERTs the dependency, then re-runs `topological_sort` and rolls back the
+  insert if a cycle was introduced. Rejects self-dependencies up front.
+- `check_dependency_graph()` — DFS-based topological sort over the entire
+  dependency graph; returns the order or throws "Circular dependency detected
+  at module: X".
+
+**Kernel migration recording:** `db.rs::run_migrations` now appends 8 baseline
+kernel migrations (versions 1–8 covering the original schema and every
+historical ALTER TABLE) into `migration_log` via `INSERT OR IGNORE`. Idempotent;
+reflects retroactively on existing files when first opened after Phase 39.
+
+**MockApi parity:** all 5 commands implemented with the same semantics. The
+mock simulates per-version failure via a `FAIL_MIGRATION` marker substring in
+the migration SQL — tests inject this string to drive the partial-failure path
+without needing real SQLite errors. Cycle detection uses the same DFS visit
+algorithm and roll-back-on-cycle behavior.
+
+- 13 new tests in migration-coordinator.test.ts: register+run round-trip,
+  checksum tampering rejection, out-of-order registration → in-order execution,
+  partial failure halts and is recorded, dependency enforcement (B blocked
+  until A migrated), circular dependency rejection + rollback, full topo sort
+  ordering, status counts during phases, kernel migrations recorded
+  retroactively, all-modules listing, idempotent re-runs, cross-module
+  isolation on failure, self-dependency rejection
+- 383 tests passing (1 skipped); npm run check clean; cargo check clean
+
+
 
 ### Phase 38 — Storage Sandbox & Directory Structure (2026-04-09)
 **Major architectural shift:** Company files transition from a single .sqlite

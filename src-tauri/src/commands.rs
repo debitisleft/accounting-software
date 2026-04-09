@@ -4945,6 +4945,418 @@ pub async fn module_delete(
     Ok(n)
 }
 
+// ── Phase 39: Migration Coordinator ─────────────────────
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct MigrationSpec {
+    pub version: i64,
+    pub description: String,
+    pub sql: String,
+    pub checksum: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MigrationStatus {
+    pub module_id: String,
+    pub latest_version: i64,
+    pub applied_count: i64,
+    pub pending_count: i64,
+    pub failed_count: i64,
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RunMigrationsResult {
+    pub applied: Vec<i64>,
+    pub failed: Option<i64>,
+    pub error: Option<String>,
+}
+
+/// Look up the SHA-256-style checksum recorded for a previously-applied
+/// migration. Returns None if the migration hasn't been applied yet.
+fn get_applied_checksum(
+    conn: &rusqlite::Connection,
+    module_id: &str,
+    version: i64,
+) -> Result<Option<String>, String> {
+    let row: Option<Option<String>> = conn
+        .query_row(
+            "SELECT checksum FROM migration_log WHERE module_id = ?1 AND version = ?2 AND success = 1",
+            params![module_id, version],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .ok();
+    Ok(row.flatten())
+}
+
+#[tauri::command]
+pub async fn register_module_migrations(
+    db: State<'_, DbState>,
+    module_id: String,
+    migrations: Vec<MigrationSpec>,
+) -> Result<Vec<MigrationSpec>, String> {
+    validate_ident(&module_id)?;
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Detect tampered migrations: if a migration with this version was already
+    // applied successfully, its checksum must match the new one being registered.
+    for m in &migrations {
+        if let Some(existing) = get_applied_checksum(conn, &module_id, m.version)? {
+            if existing != m.checksum {
+                return Err(format!(
+                    "Checksum mismatch for {} v{}: applied={}, new={}",
+                    module_id, m.version, existing, m.checksum
+                ));
+            }
+        }
+    }
+
+    // Replace any previously-pending entries for these versions, then insert
+    // the new pending list. We don't touch already-applied migrations.
+    for m in &migrations {
+        conn.execute(
+            "DELETE FROM module_pending_migrations WHERE module_id = ?1 AND version = ?2",
+            params![module_id, m.version],
+        ).map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT INTO module_pending_migrations (module_id, version, description, sql, checksum)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![module_id, m.version, m.description, m.sql, m.checksum],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    // Return the list of migrations that are still pending (not yet applied).
+    let mut stmt = conn.prepare(
+        "SELECT pm.version, pm.description, pm.sql, pm.checksum
+         FROM module_pending_migrations pm
+         WHERE pm.module_id = ?1
+           AND NOT EXISTS (
+             SELECT 1 FROM migration_log ml
+             WHERE ml.module_id = pm.module_id AND ml.version = pm.version AND ml.success = 1
+           )
+         ORDER BY pm.version"
+    ).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map(params![module_id], |r| {
+        Ok(MigrationSpec {
+            version: r.get(0)?,
+            description: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+            sql: r.get(2)?,
+            checksum: r.get(3)?,
+        })
+    }).map_err(|e| e.to_string())?;
+    let mut pending = Vec::new();
+    for r in rows { pending.push(r.map_err(|e| e.to_string())?); }
+    Ok(pending)
+}
+
+/// Build a topological order of all module dependencies recorded in
+/// `module_dependencies`. Returns an error if a cycle is detected.
+fn topological_sort(conn: &rusqlite::Connection) -> Result<Vec<String>, String> {
+    // Adjacency: for each module, the list of modules it depends on.
+    let mut deps: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut all_modules: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let mut stmt = conn.prepare(
+        "SELECT module_id, depends_on_module_id FROM module_dependencies"
+    ).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?;
+    for r in rows {
+        let (m, d) = r.map_err(|e| e.to_string())?;
+        deps.entry(m.clone()).or_default().push(d.clone());
+        all_modules.insert(m);
+        all_modules.insert(d);
+    }
+
+    // Kahn's algorithm using DFS detection for clarity.
+    let mut order: Vec<String> = Vec::new();
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut on_stack: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    fn visit(
+        node: &str,
+        deps: &std::collections::HashMap<String, Vec<String>>,
+        visited: &mut std::collections::HashSet<String>,
+        on_stack: &mut std::collections::HashSet<String>,
+        order: &mut Vec<String>,
+    ) -> Result<(), String> {
+        if visited.contains(node) { return Ok(()); }
+        if on_stack.contains(node) {
+            return Err(format!("Circular dependency detected at module: {}", node));
+        }
+        on_stack.insert(node.to_string());
+        if let Some(children) = deps.get(node) {
+            for child in children {
+                visit(child, deps, visited, on_stack, order)?;
+            }
+        }
+        on_stack.remove(node);
+        visited.insert(node.to_string());
+        order.push(node.to_string());
+        Ok(())
+    }
+
+    let mut sorted: Vec<String> = all_modules.into_iter().collect();
+    sorted.sort();
+    for m in sorted {
+        visit(&m, &deps, &mut visited, &mut on_stack, &mut order)?;
+    }
+    Ok(order)
+}
+
+#[tauri::command]
+pub async fn check_dependency_graph(db: State<'_, DbState>) -> Result<Vec<String>, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    topological_sort(conn)
+}
+
+#[tauri::command]
+pub async fn register_module_dependency(
+    db: State<'_, DbState>,
+    module_id: String,
+    depends_on_module_id: String,
+    min_version: Option<i64>,
+) -> Result<(), String> {
+    validate_ident(&module_id)?;
+    validate_ident(&depends_on_module_id)?;
+    if module_id == depends_on_module_id {
+        return Err("A module cannot depend on itself".to_string());
+    }
+
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    conn.execute(
+        "INSERT OR REPLACE INTO module_dependencies (module_id, depends_on_module_id, min_version)
+         VALUES (?1, ?2, ?3)",
+        params![module_id, depends_on_module_id, min_version.unwrap_or(1)],
+    ).map_err(|e| e.to_string())?;
+
+    // Re-check the dependency graph after adding — reject cycles immediately
+    // so the bad insert is caught before any migration runs.
+    if let Err(e) = topological_sort(conn) {
+        // Roll back the insert
+        let _ = conn.execute(
+            "DELETE FROM module_dependencies WHERE module_id = ?1 AND depends_on_module_id = ?2",
+            params![module_id, depends_on_module_id],
+        );
+        return Err(e);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn run_module_migrations(
+    db: State<'_, DbState>,
+    module_id: String,
+) -> Result<RunMigrationsResult, String> {
+    validate_ident(&module_id)?;
+
+    // Step 1: dependency check. All modules this module depends on must have
+    // applied at least min_version successfully.
+    {
+        let guard = get_conn(&db)?;
+        let conn = guard.as_ref().unwrap();
+        // Reject circular dependencies up front
+        topological_sort(conn)?;
+
+        let mut stmt = conn.prepare(
+            "SELECT depends_on_module_id, min_version FROM module_dependencies WHERE module_id = ?1"
+        ).map_err(|e| e.to_string())?;
+        let dep_rows = stmt.query_map(params![module_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        }).map_err(|e| e.to_string())?;
+        for r in dep_rows {
+            let (dep, min_v) = r.map_err(|e| e.to_string())?;
+            let max_applied: i64 = conn.query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM migration_log WHERE module_id = ?1 AND success = 1",
+                params![dep], |r| r.get(0),
+            ).map_err(|e| e.to_string())?;
+            if max_applied < min_v {
+                return Err(format!(
+                    "Dependency not satisfied: {} requires {} >= v{} (current: v{})",
+                    module_id, dep, min_v, max_applied
+                ));
+            }
+        }
+    }
+
+    // Step 2: ensure module DB is attached (inlined to avoid State cloning).
+    let already_attached = {
+        let attached = db.attached_modules.lock().map_err(|e| e.to_string())?;
+        attached.iter().any(|m| m == &module_id)
+    };
+    if !already_attached {
+        // Make sure modules/ exists
+        {
+            let dir_guard = db.company_dir.lock().map_err(|e| e.to_string())?;
+            let dir = dir_guard.as_ref().ok_or("No file is open")?.clone();
+            std::fs::create_dir_all(format!("{}/modules", dir))
+                .map_err(|e| format!("Failed to create modules dir: {}", e))?;
+        }
+        let path = module_db_path(&db, &module_id)?;
+        let guard = get_conn(&db)?;
+        let conn = guard.as_ref().unwrap();
+        let attach_sql = format!(
+            "ATTACH DATABASE '{}' AS module_{};",
+            path.replace('\'', "''"),
+            sanitize_ident(&module_id)
+        );
+        conn.execute_batch(&attach_sql).map_err(|e| format!("ATTACH failed: {}", e))?;
+        let init_sql = format!(
+            "CREATE TABLE IF NOT EXISTS module_{}._migrations (
+                version TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+            sanitize_ident(&module_id)
+        );
+        conn.execute_batch(&init_sql).map_err(|e| e.to_string())?;
+        drop(guard);
+        let mut attached = db.attached_modules.lock().map_err(|e| e.to_string())?;
+        attached.push(module_id.clone());
+    }
+
+    // Step 3: load pending migrations (in version order) that haven't been
+    // successfully applied yet.
+    let pending: Vec<MigrationSpec> = {
+        let guard = get_conn(&db)?;
+        let conn = guard.as_ref().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT pm.version, pm.description, pm.sql, pm.checksum
+             FROM module_pending_migrations pm
+             WHERE pm.module_id = ?1
+               AND NOT EXISTS (
+                 SELECT 1 FROM migration_log ml
+                 WHERE ml.module_id = pm.module_id AND ml.version = pm.version AND ml.success = 1
+               )
+             ORDER BY pm.version"
+        ).map_err(|e| e.to_string())?;
+        let rows = stmt.query_map(params![module_id], |r| {
+            Ok(MigrationSpec {
+                version: r.get(0)?,
+                description: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                sql: r.get(2)?,
+                checksum: r.get(3)?,
+            })
+        }).map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for r in rows { out.push(r.map_err(|e| e.to_string())?); }
+        out
+    };
+
+    // Step 4: apply migrations one at a time. On failure: record the failure
+    // row and stop (do not advance to subsequent versions).
+    let mut applied: Vec<i64> = Vec::new();
+    for m in &pending {
+        let guard = get_conn(&db)?;
+        let conn = guard.as_ref().unwrap();
+
+        // SAVEPOINT semantics — execute_batch wraps in an implicit transaction
+        // for the kernel connection, but the migration SQL targets the ATTACHed
+        // module schema. We use a SAVEPOINT to allow rollback of just this
+        // migration without affecting any in-flight kernel transaction.
+        let savepoint = format!("mig_{}_{}", sanitize_ident(&module_id), m.version);
+        conn.execute_batch(&format!("SAVEPOINT {};", savepoint))
+            .map_err(|e| e.to_string())?;
+
+        let exec_result = conn.execute_batch(&m.sql);
+
+        match exec_result {
+            Ok(()) => {
+                conn.execute_batch(&format!("RELEASE {};", savepoint))
+                    .map_err(|e| e.to_string())?;
+                conn.execute(
+                    "INSERT INTO migration_log (module_id, version, description, checksum, success)
+                     VALUES (?1, ?2, ?3, ?4, 1)",
+                    params![module_id, m.version, m.description, m.checksum],
+                ).map_err(|e| e.to_string())?;
+                applied.push(m.version);
+            }
+            Err(e) => {
+                let _ = conn.execute_batch(&format!("ROLLBACK TO {}; RELEASE {};", savepoint, savepoint));
+                let err_msg = e.to_string();
+                conn.execute(
+                    "INSERT INTO migration_log (module_id, version, description, checksum, success, error_message)
+                     VALUES (?1, ?2, ?3, ?4, 0, ?5)",
+                    params![module_id, m.version, m.description, m.checksum, err_msg],
+                ).ok();
+                return Ok(RunMigrationsResult {
+                    applied,
+                    failed: Some(m.version),
+                    error: Some(err_msg),
+                });
+            }
+        }
+    }
+
+    Ok(RunMigrationsResult { applied, failed: None, error: None })
+}
+
+#[tauri::command]
+pub async fn get_migration_status(
+    db: State<'_, DbState>,
+    module_id: Option<String>,
+) -> Result<Vec<MigrationStatus>, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Discover module ids: union of pending + log tables.
+    let mut module_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    if let Some(ref m) = module_id {
+        validate_ident(m)?;
+        module_ids.insert(m.clone());
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT module_id FROM migration_log
+             UNION SELECT module_id FROM module_pending_migrations"
+        ).map_err(|e| e.to_string())?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        for r in rows { module_ids.insert(r.map_err(|e| e.to_string())?); }
+    }
+
+    let mut result = Vec::new();
+    for mid in module_ids {
+        let latest_version: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM migration_log WHERE module_id = ?1 AND success = 1",
+            params![mid], |r| r.get(0),
+        ).map_err(|e| e.to_string())?;
+        let applied_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM migration_log WHERE module_id = ?1 AND success = 1",
+            params![mid], |r| r.get(0),
+        ).map_err(|e| e.to_string())?;
+        let failed_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM migration_log WHERE module_id = ?1 AND success = 0",
+            params![mid], |r| r.get(0),
+        ).map_err(|e| e.to_string())?;
+        let pending_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM module_pending_migrations pm
+             WHERE pm.module_id = ?1
+               AND NOT EXISTS (
+                 SELECT 1 FROM migration_log ml
+                 WHERE ml.module_id = pm.module_id AND ml.version = pm.version AND ml.success = 1
+               )",
+            params![mid], |r| r.get(0),
+        ).map_err(|e| e.to_string())?;
+        let last_error: Option<String> = conn.query_row(
+            "SELECT error_message FROM migration_log
+             WHERE module_id = ?1 AND success = 0
+             ORDER BY id DESC LIMIT 1",
+            params![mid], |r| r.get::<_, Option<String>>(0),
+        ).unwrap_or(None);
+
+        result.push(MigrationStatus {
+            module_id: mid,
+            latest_version,
+            applied_count,
+            pending_count,
+            failed_count,
+            last_error,
+        });
+    }
+    Ok(result)
+}
+
 #[tauri::command]
 pub async fn module_execute_migration(
     db: State<'_, DbState>,

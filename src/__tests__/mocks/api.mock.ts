@@ -124,6 +124,20 @@ export class MockApi {
   moduleStores: Record<string, Record<string, Record<string, unknown>[]>> = {}
   moduleMigrations: Record<string, string[]> = {}
   attachedModules: string[] = []
+  // Phase 39: Migration coordinator
+  migrationLog: {
+    id: number
+    module_id: string
+    version: number
+    description: string
+    checksum: string
+    success: number
+    error_message: string | null
+    applied_at: string
+  }[] = []
+  pendingMigrations: { module_id: string; version: number; description: string; sql: string; checksum: string }[] = []
+  moduleDependencies: { module_id: string; depends_on_module_id: string; min_version: number }[] = []
+  private migrationLogSeq = 1
   private moduleRowSeq = 1
   private nextId = 1
   private auditSeq = 0
@@ -213,6 +227,32 @@ export class MockApi {
     this.moduleStores = {}
     this.moduleMigrations = {}
     this.attachedModules = []
+    this.migrationLog = []
+    this.pendingMigrations = []
+    this.moduleDependencies = []
+    // Retroactively record kernel migrations (matches Rust db.rs run_migrations)
+    const kernelMigrations: [number, string][] = [
+      [1, 'Initial kernel schema (accounts, transactions, journal_entries, settings)'],
+      [2, 'Add is_void/void_of to transactions'],
+      [3, 'Add transaction_id to audit_log'],
+      [4, 'Add journal_type to transactions'],
+      [5, 'Add is_system to accounts'],
+      [6, 'Add cash_flow_category and is_cash_account to accounts'],
+      [7, 'Add is_reconciled to journal_entries'],
+      [8, 'Add migration_log, module_dependencies, module_pending_migrations'],
+    ]
+    for (const [version, description] of kernelMigrations) {
+      this.migrationLog.push({
+        id: this.migrationLogSeq++,
+        module_id: 'kernel',
+        version,
+        description,
+        checksum: `kernel-v${version}`,
+        success: 1,
+        error_message: null,
+        applied_at: new Date().toISOString(),
+      })
+    }
     this.settings = {
       company_name: 'My Company',
       fiscal_year_start_month: '1',
@@ -2807,6 +2847,218 @@ export class MockApi {
     const applied = this.moduleMigrations[moduleId]
     if (applied.includes(version)) return // idempotent
     applied.push(version)
+  }
+
+  // ── Phase 39: Migration Coordinator ─────────────────────
+
+  registerModuleMigrations(
+    moduleId: string,
+    migrations: { version: number; description: string; sql: string; checksum: string }[],
+  ): { version: number; description: string; sql: string; checksum: string }[] {
+    this.guardFileOpen()
+    this.validateIdent(moduleId, 'module_id')
+
+    // Detect tampered migrations
+    for (const m of migrations) {
+      const applied = this.migrationLog.find(
+        (l) => l.module_id === moduleId && l.version === m.version && l.success === 1,
+      )
+      if (applied && applied.checksum !== m.checksum) {
+        throw new Error(
+          `Checksum mismatch for ${moduleId} v${m.version}: applied=${applied.checksum}, new=${m.checksum}`,
+        )
+      }
+    }
+
+    // Replace any pending entries for these versions
+    for (const m of migrations) {
+      this.pendingMigrations = this.pendingMigrations.filter(
+        (p) => !(p.module_id === moduleId && p.version === m.version),
+      )
+      this.pendingMigrations.push({ module_id: moduleId, ...m })
+    }
+
+    return this.pendingMigrations
+      .filter(
+        (p) =>
+          p.module_id === moduleId &&
+          !this.migrationLog.some(
+            (l) => l.module_id === moduleId && l.version === p.version && l.success === 1,
+          ),
+      )
+      .map((p) => ({ version: p.version, description: p.description, sql: p.sql, checksum: p.checksum }))
+      .sort((a, b) => a.version - b.version)
+  }
+
+  private topologicalSort(): string[] {
+    // Build adjacency: module -> [deps]
+    const deps: Record<string, string[]> = {}
+    const allModules = new Set<string>()
+    for (const d of this.moduleDependencies) {
+      if (!deps[d.module_id]) deps[d.module_id] = []
+      deps[d.module_id].push(d.depends_on_module_id)
+      allModules.add(d.module_id)
+      allModules.add(d.depends_on_module_id)
+    }
+
+    const visited = new Set<string>()
+    const onStack = new Set<string>()
+    const order: string[] = []
+
+    const visit = (node: string): void => {
+      if (visited.has(node)) return
+      if (onStack.has(node)) {
+        throw new Error(`Circular dependency detected at module: ${node}`)
+      }
+      onStack.add(node)
+      for (const child of deps[node] ?? []) visit(child)
+      onStack.delete(node)
+      visited.add(node)
+      order.push(node)
+    }
+
+    const sorted = Array.from(allModules).sort()
+    for (const m of sorted) visit(m)
+    return order
+  }
+
+  checkDependencyGraph(): string[] {
+    this.guardFileOpen()
+    return this.topologicalSort()
+  }
+
+  registerModuleDependency(moduleId: string, dependsOnModuleId: string, minVersion?: number): void {
+    this.guardFileOpen()
+    this.validateIdent(moduleId, 'module_id')
+    this.validateIdent(dependsOnModuleId, 'module_id')
+    if (moduleId === dependsOnModuleId) throw new Error('A module cannot depend on itself')
+
+    // Remove any existing dep for this pair
+    this.moduleDependencies = this.moduleDependencies.filter(
+      (d) => !(d.module_id === moduleId && d.depends_on_module_id === dependsOnModuleId),
+    )
+    this.moduleDependencies.push({
+      module_id: moduleId,
+      depends_on_module_id: dependsOnModuleId,
+      min_version: minVersion ?? 1,
+    })
+
+    // Reject cycles immediately
+    try {
+      this.topologicalSort()
+    } catch (e) {
+      // Roll back the insert
+      this.moduleDependencies = this.moduleDependencies.filter(
+        (d) => !(d.module_id === moduleId && d.depends_on_module_id === dependsOnModuleId),
+      )
+      throw e
+    }
+  }
+
+  runModuleMigrations(moduleId: string): { applied: number[]; failed: number | null; error: string | null } {
+    this.guardFileOpen()
+    this.validateIdent(moduleId, 'module_id')
+
+    // Reject circular dependencies up front
+    this.topologicalSort()
+
+    // Dependency check
+    for (const d of this.moduleDependencies.filter((x) => x.module_id === moduleId)) {
+      const maxApplied = this.migrationLog
+        .filter((l) => l.module_id === d.depends_on_module_id && l.success === 1)
+        .reduce((max, l) => Math.max(max, l.version), 0)
+      if (maxApplied < d.min_version) {
+        throw new Error(
+          `Dependency not satisfied: ${moduleId} requires ${d.depends_on_module_id} >= v${d.min_version} (current: v${maxApplied})`,
+        )
+      }
+    }
+
+    // Auto-attach
+    if (!this.attachedModules.includes(moduleId)) {
+      this.attachModuleDb(moduleId)
+    }
+
+    const pending = this.pendingMigrations
+      .filter(
+        (p) =>
+          p.module_id === moduleId &&
+          !this.migrationLog.some(
+            (l) => l.module_id === moduleId && l.version === p.version && l.success === 1,
+          ),
+      )
+      .sort((a, b) => a.version - b.version)
+
+    const applied: number[] = []
+    for (const m of pending) {
+      // Mock failure trigger: SQL containing 'FAIL_MIGRATION' fails this version.
+      if (m.sql.includes('FAIL_MIGRATION')) {
+        const errMsg = `Migration failed: simulated failure in ${moduleId} v${m.version}`
+        this.migrationLog.push({
+          id: this.migrationLogSeq++,
+          module_id: moduleId,
+          version: m.version,
+          description: m.description,
+          checksum: m.checksum,
+          success: 0,
+          error_message: errMsg,
+          applied_at: new Date().toISOString(),
+        })
+        return { applied, failed: m.version, error: errMsg }
+      }
+      this.migrationLog.push({
+        id: this.migrationLogSeq++,
+        module_id: moduleId,
+        version: m.version,
+        description: m.description,
+        checksum: m.checksum,
+        success: 1,
+        error_message: null,
+        applied_at: new Date().toISOString(),
+      })
+      applied.push(m.version)
+    }
+
+    return { applied, failed: null, error: null }
+  }
+
+  getMigrationStatus(moduleId?: string): {
+    module_id: string
+    latest_version: number
+    applied_count: number
+    pending_count: number
+    failed_count: number
+    last_error: string | null
+  }[] {
+    this.guardFileOpen()
+    let moduleIds: string[]
+    if (moduleId) {
+      this.validateIdent(moduleId, 'module_id')
+      moduleIds = [moduleId]
+    } else {
+      const set = new Set<string>()
+      for (const l of this.migrationLog) set.add(l.module_id)
+      for (const p of this.pendingMigrations) set.add(p.module_id)
+      moduleIds = Array.from(set).sort()
+    }
+
+    return moduleIds.map((mid) => {
+      const successLog = this.migrationLog.filter((l) => l.module_id === mid && l.success === 1)
+      const failedLog = this.migrationLog.filter((l) => l.module_id === mid && l.success === 0)
+      const latest = successLog.reduce((max, l) => Math.max(max, l.version), 0)
+      const pendingCount = this.pendingMigrations.filter(
+        (p) => p.module_id === mid && !successLog.some((l) => l.version === p.version),
+      ).length
+      const lastFailed = [...failedLog].sort((a, b) => b.id - a.id)[0]
+      return {
+        module_id: mid,
+        latest_version: latest,
+        applied_count: successLog.length,
+        pending_count: pendingCount,
+        failed_count: failedLog.length,
+        last_error: lastFailed?.error_message ?? null,
+      }
+    })
   }
 }
 

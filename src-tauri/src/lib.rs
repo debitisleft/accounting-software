@@ -123,6 +123,12 @@ pub fn run() {
             commands::module_update,
             commands::module_delete,
             commands::module_execute_migration,
+            // Phase 39: Migration Coordinator
+            commands::register_module_migrations,
+            commands::run_module_migrations,
+            commands::get_migration_status,
+            commands::register_module_dependency,
+            commands::check_dependency_graph,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

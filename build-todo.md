@@ -67,38 +67,31 @@
 
 ---
 
-## PHASE 39 — Migration Coordinator (Fix #7)
+## PHASE 39 — Migration Coordinator (Fix #7) ✅ COMPLETE
 **Goal:** Per-module versioned migrations with dependency enforcement and failure handling.
 
 ### Schema
-- [ ] Add `migration_log` table: id, module_id, version, description, checksum (SHA-256), applied_at, success, error_message. UNIQUE(module_id, version)
-- [ ] Add `module_dependencies` table: id, module_id, depends_on_module_id, min_version. UNIQUE(module_id, depends_on_module_id)
+- [x] Added `migration_log` table (id, module_id, version, description, checksum, applied_at, success, error_message), UNIQUE(module_id, version)
+- [x] Added `module_dependencies` table (id, module_id, depends_on_module_id, min_version), UNIQUE
+- [x] Added `module_pending_migrations` table to stage registered-but-unapplied migrations
 
 ### Commands
-- [ ] `register_module_migrations(module_id, migrations[])` — stores pending migrations, validates checksums
-- [ ] `run_module_migrations(module_id)` — checks dependencies, topological sort, runs pending migrations in order, each in own transaction, records in migration_log, stops on failure
-- [ ] `get_migration_status(module_id?)` — latest version, pending count, failures
-- [ ] `register_module_dependency(module_id, depends_on, min_version?)` — records dependency
-- [ ] `check_dependency_graph()` — validates full graph, returns topological order or circular dependency error
+- [x] `register_module_migrations(module_id, migrations[])` — stages migrations, rejects checksum mismatch on already-applied versions
+- [x] `run_module_migrations(module_id)` — dep check + topo sort + per-version SAVEPOINT, stops on first failure, records success/failure rows
+- [x] `get_migration_status(module_id?)` — applied/pending/failed counts + last error
+- [x] `register_module_dependency(module_id, depends_on, min_version?)` — rejects self-deps and immediate cycles (rolls back insert)
+- [x] `check_dependency_graph()` — DFS topological sort, throws on cycles
 
 ### Integration
-- [ ] Retroactively record kernel migrations in migration_log (module_id='kernel')
-- [ ] Update startup: for each active module, ATTACH → check pending migrations → run in dependency order → disable on failure
+- [x] init_db retroactively records 8 kernel migrations as module_id='kernel' (idempotent INSERT OR IGNORE)
+- [ ] Module-aware startup flow (ATTACH active modules → run pending migrations → disable on failure) — deferred to Phase 40 along with module_registry
 
 ### All commands → api.ts + MockApi
+- [x] All 5 wrappers + MockApi parity with simulated SAVEPOINT failure via 'FAIL_MIGRATION' marker in SQL
 
 ### Tests
-- [ ] Test: register + run migrations, all recorded in migration_log
-- [ ] Test: checksum mismatch detected and rejected
-- [ ] Test: migrations run in version order
-- [ ] Test: failed migration stops execution, records error
-- [ ] Test: dependency enforcement — B depends on A, B waits for A
-- [ ] Test: circular dependency detected and rejected
-- [ ] Test: get_migration_status returns correct counts
-- [ ] Test: kernel migrations recorded retroactively
-- [ ] Test: startup with failed module migration disables module
-- [ ] Test: re-running migrations is idempotent
-- [ ] CHECK: Migration coordinator works, dependencies enforced, failures handled, all tests pass, `npm run check` clean
+- [x] 13 new tests in migration-coordinator.test.ts covering register+run, checksum tampering, version ordering, partial-failure halting, dep enforcement, circular dep rejection, kernel retroactive recording, status counts, idempotent re-runs, cross-module isolation, self-dep rejection
+- [x] CHECK: 383 tests pass (1 skipped); typecheck clean; cargo check clean
 
 ---
 
@@ -440,8 +433,8 @@
 
 ---
 
-## CURRENT PHASE: 39
-## LAST COMPLETED CHECK: Phase 38 — storage sandbox & directory structure, 370 tests pass (2026-04-09)
+## CURRENT PHASE: 40
+## LAST COMPLETED CHECK: Phase 39 — migration coordinator, 383 tests pass (2026-04-09)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)

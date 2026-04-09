@@ -316,6 +316,39 @@ fn create_tables(conn: &Connection) -> Result<()> {
         );
 
         CREATE INDEX IF NOT EXISTS idx_documents_entity ON documents(entity_type, entity_id);
+
+        CREATE TABLE IF NOT EXISTS migration_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            description TEXT,
+            checksum TEXT,
+            applied_at TEXT NOT NULL DEFAULT (datetime('now')),
+            success INTEGER NOT NULL DEFAULT 1,
+            error_message TEXT,
+            UNIQUE(module_id, version)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_migration_log_module ON migration_log(module_id);
+
+        CREATE TABLE IF NOT EXISTS module_dependencies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id TEXT NOT NULL,
+            depends_on_module_id TEXT NOT NULL,
+            min_version INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(module_id, depends_on_module_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS module_pending_migrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            description TEXT,
+            sql TEXT NOT NULL,
+            checksum TEXT NOT NULL,
+            registered_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(module_id, version)
+        );
         "
     )?;
     Ok(())
@@ -375,6 +408,34 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
     if !je_cols.iter().any(|c| c == "is_reconciled") {
         conn.execute_batch("ALTER TABLE journal_entries ADD COLUMN is_reconciled INTEGER NOT NULL DEFAULT 0;")?;
+    }
+
+    // Phase 39: Retroactively record kernel migrations in migration_log
+    // (only after the migration_log table itself exists). We treat the kernel
+    // schema as a single "version 1" baseline. Future kernel changes will add
+    // new versioned rows here.
+    let log_exists: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='migration_log'",
+        [], |row| row.get(0),
+    ).unwrap_or(false);
+    if log_exists {
+        let kernel_migrations: &[(i64, &str)] = &[
+            (1, "Initial kernel schema (accounts, transactions, journal_entries, settings)"),
+            (2, "Add is_void/void_of to transactions"),
+            (3, "Add transaction_id to audit_log"),
+            (4, "Add journal_type to transactions"),
+            (5, "Add is_system to accounts"),
+            (6, "Add cash_flow_category and is_cash_account to accounts"),
+            (7, "Add is_reconciled to journal_entries"),
+            (8, "Add migration_log, module_dependencies, module_pending_migrations"),
+        ];
+        for (version, description) in kernel_migrations {
+            conn.execute(
+                "INSERT OR IGNORE INTO migration_log (module_id, version, description, checksum, success)
+                 VALUES ('kernel', ?1, ?2, ?3, 1)",
+                params![version, description, format!("kernel-v{}", version)],
+            )?;
+        }
     }
 
     Ok(())
