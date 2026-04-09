@@ -1,7 +1,7 @@
 # Bookkeeping App — Claude's Instructions
 
 ## PROJECT GOAL
-Build a double-entry bookkeeping desktop app.
+Build a double-entry bookkeeping desktop app with an open plugin architecture.
 Stack: Tauri + React + TypeScript + rusqlite (SQLite on disk) + Vitest
 
 ## HARD RULES — never break these
@@ -45,13 +45,15 @@ Every new feature must be written in 4 places:
 
 Do NOT skip any of these. If a Rust command exists without a MockApi method, tests can't cover it. If api.ts is missing a wrapper, the UI can't call it.
 
-## FILE ARCHITECTURE (Phase 18+)
-- Each company is a `.sqlite` file — the file IS the books
-- One file open at a time (like QuickBooks Desktop)
+## FILE ARCHITECTURE (Phase 38+)
+- Each company is a DIRECTORY containing company.sqlite + modules/ + documents/
+- Legacy single .sqlite files auto-migrate to directory format on open
+- One company open at a time (like QuickBooks Desktop)
 - Connection: `Mutex<Option<Connection>>` — None when no file open
+- Company directory path stored in state — modules need it for their .sqlite paths
 - Every command must guard: return error if no file is open
 - Recent files tracked in `{app_data_dir}/recent-files.json` (app-level, not per-file)
-- Settings (company name, currency, etc.) stored inside each `.sqlite` file
+- Settings (company name, currency, etc.) stored inside company.sqlite
 
 ## JOURNAL TYPES (Phase 20+)
 - GENERAL — regular day-to-day entries (user-created)
@@ -60,12 +62,6 @@ Do NOT skip any of these. If a Rust command exists without a MockApi method, tes
 - REVERSING — auto-reverse of adjusting entry (system-generated only)
 - OPENING — opening balances (system-generated only)
 - Users can only create GENERAL and ADJUSTING entries manually
-
-## MODULE CONVENTION (Phase 23+)
-- Module tables use prefix: `mod_{module_name}_` (e.g., mod_invoicing_invoices)
-- Modules register in the `modules` table
-- Module data lives inside each .sqlite file (same data ownership principle)
-- Core engine tables never use the `mod_` prefix
 
 ## DIMENSIONS (Phase 32+)
 Dimensions are user-defined tags for transaction lines: class, location, project, department, or any custom type.
@@ -91,16 +87,43 @@ Contacts (customers, vendors, employees) are kernel-level entities, not a module
 ## DOCUMENT ATTACHMENTS (Phase 35+)
 Binary files (receipts, invoices, source documents) attached to transactions, contacts, or accounts.
 - Files stored on filesystem, NOT in SQLite — metadata only in the database
-- Directory: `{company_file}_documents/{YYYY}/{MM}/{stored_filename}` — sibling to the .sqlite file
+- Directory: `{company_dir}/documents/{YYYY}/{MM}/{stored_filename}`
 - stored_filename is UUID-based to avoid collisions; original filename preserved in metadata
 - Schema: `documents` table (id, entity_type, entity_id, filename, stored_filename, mime_type, file_size_bytes, description, uploaded_at)
 - Documents CAN be truly deleted (they are supporting evidence, not financial data)
+
+## PLUGIN SDK (Phase 38+)
+- Company files are DIRECTORIES: MyCompany/company.sqlite + modules/ + documents/ + backups/
+- Module storage uses SQLite ATTACH — each module gets its own .sqlite in modules/{module_id}.sqlite
+- No raw SQL from modules — all access through structured Storage API (create_table, insert, query, update, delete)
+- No cross-module access — each module can only touch its own .sqlite
+- SDK v1 (sdk_v1.rs) is the ONLY way modules interact with the kernel — no direct DB access, no importing host code
+- All SDK methods take module_id as first param and check permissions before executing
+- Permissions are granular (ledger:read, ledger:write, accounts:read, etc.) and granted from manifest on install
+- Sync hooks run INSIDE DB transactions — can validate or reject atomically
+- Async events fire AFTER commit — fire-and-forget, errors logged not propagated
+- Module UI runs in sandboxed iframes (sandbox="allow-scripts", NO allow-same-origin) — postMessage only
+- First-party trusted modules can opt out of iframe and render React directly
+- Module health: 10 errors in 5 minutes → auto-disable. App ALWAYS boots regardless of module failures.
+- Modules distributed as .zip packages with module.json manifest
+- First-party modules follow the SAME SDK rules as third-party — no backdoors
+- SDK versions are frozen once released — new methods can be added, breaking changes require new SDK version
+- Migration coordinator: dependency graph, topological sort, per-module versioned migrations, rollback on failure
+- Service registry: inter-module communication brokered by kernel with permission checks
+
+## MODULE CONVENTION
+- Module tables live in their own .sqlite via ATTACH (not in company.sqlite)
+- Modules register in the `module_registry` table in company.sqlite
+- Module data lives inside each company directory (same data ownership principle)
+- Core engine tables are in company.sqlite — modules never write to it directly
+- Module package format: .zip containing module.json + frontend/ + migrations/
 
 ## MIGRATION PATTERN
 Schema changes use raw SQL in db.rs init_db():
 - Always use IF NOT EXISTS / ALTER TABLE with existence checks
 - Never drop tables — append migrations
 - Test migrations against both fresh and existing databases
+- Module migrations tracked in migration_log table with checksums
 
 ## UI PATTERN
 New pages follow this structure:
@@ -109,6 +132,8 @@ New pages follow this structure:
 3. Data fetched via api.ts in useEffect
 4. Loading state while data fetches
 5. Error state with retry button
+
+Module pages render in ModuleFrame (sandboxed iframe) and are added to sidebar via UI Extension API.
 
 ## ACCOUNTING MODEL
 - ASSET: debit increases, credit decreases
