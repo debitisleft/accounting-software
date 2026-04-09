@@ -1,14 +1,97 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 45 Complete — Distribution & Install Flow
+## STATUS: Phase 46 Complete — Invoicing & AR (First Real Module)
 
 ## CURRENT STATE (2026-04-09)
-- 45 phases complete, 477 tests passing (1 skipped)
-- Plugin architecture COMPLETE through distribution: .zip package format,
-  10-step install flow, Ed25519 signature verification, validate / export /
-  update commands, full lifecycle from .zip → active module
+- 46 phases complete, 495 tests passing (1 skipped)
+- Plugin architecture PROVEN END-TO-END: first real module installs via .zip,
+  posts to ledger via SDK, records payments, voids with rollback, runs AR
+  aging — using ONLY the SDK contract, no kernel backdoors
 
 ## COMPLETED
+
+### Phase 46 — Invoicing & AR (First Real Module) (2026-04-09)
+First real module built entirely on the plugin SDK. Proves every layer
+works: storage, migrations, permissions, hooks, events, UI extensions,
+install flow. First-party module that ships with the app but follows the
+EXACT same SDK rules as third-party — no kernel backdoors, no direct DB
+access, no host-app imports.
+
+**Module package (src/modules/invoicing/):**
+- `module.json` — manifest with id `com.bookkeeping.invoicing`,
+  sdk_version "1", 15 declared permissions, trusted=true
+- `migrations/001_init.sql` — invoices, invoice_lines, invoice_settings
+  tables, all money in INTEGER cents, settings seeded with sane defaults
+- `frontend/index.html` — iframe entry point that links theme.css
+- `frontend/style.css` — module styling using design tokens from theme.css
+- `frontend/bundle.js` — iframe-side bootstrap that imports `sdk` from
+  `../../module-sdk/sdk.js` and uses ONLY sdk.* methods (registerNavItem,
+  ledger.createTransaction, etc.)
+
+**src/modules/invoicing/logic.ts (NEW):** the testable business logic.
+Defines a `ModuleSdk` interface that mirrors the iframe-side `sdk.js` shim
+with ledger / accounts / contacts / storage / ui namespaces. The
+`InvoicingModule` class takes a `ModuleSdk` in its constructor and uses
+ONLY those methods — no imports from `lib/api`, `commands`, or any host
+internal. Same code path runs both inside the iframe (when wired through
+postMessage) and in node tests (when wired through MockApi).
+
+**Operations implemented (all through SDK):**
+- `init()` — creates the 3 storage tables, seeds default settings, ensures
+  account 1100 (AR) exists (creates via `sdk.accounts.create` if not),
+  registers UI extensions
+- `createInvoice()` — calculates subtotal from lines (supports fractional
+  quantities like 2.5 hours), inserts invoice + lines via `sdk.storage.insert`
+- `finalizeInvoice()` — moves draft → sent and posts a balanced AR
+  transaction via `sdk.ledger.createTransaction` (debit AR, credit each
+  line's revenue account). Stores returned transaction_id back on the
+  invoice row.
+- `recordPayment()` — posts a balanced cash/AR transaction via SDK,
+  updates amount_paid + balance_due, transitions to 'paid' (zero balance)
+  or 'partial' (positive balance). Appends payment tx id to JSON array.
+- `voidInvoice()` — voids the AR transaction via `sdk.ledger.voidTransaction`,
+  sets status to 'void'. Refuses if payments exist (user must void those
+  first).
+- `getArAgingReport()` — buckets unpaid invoices by days-past-due into
+  current / 1-30 / 31-60 / 61-90 / 90+ per customer with grand totals.
+
+**MockApi `makeSdkForModule(moduleId)`:** new helper that constructs a
+ModuleSdk-shaped object backed by MockApi internals. Permission checks run
+on every call so the module is subject to the same enforcement as a real
+iframe. Storage operations key on the module's ATTACH alias automatically.
+This is what makes "module uses ONLY SDK" testable — the InvoicingModule
+class is constructed with this object, and never sees MockApi directly.
+
+**tsconfig.app.json:** added `resolveJsonModule: true` so tests can import
+`module.json` as a typed object.
+
+- 18 new tests in invoicing-module.test.ts:
+  - Install flow: install via install_module_from_zip, duplicate install
+    rejected, init creates tables + seeds settings, init sets default AR,
+    init registers Invoices nav item
+  - CRUD: createInvoice + lines via storage API, invoice_number
+    auto-increments, multi-line totals with fractional quantities
+  - Finalize: balanced AR transaction (debit AR, credit revenue), double
+    finalize rejected
+  - Payments: full payment → 'paid' with balanced cash/AR tx, partial
+    payment → 'partial', overpayment rejected
+  - Void: voids the kernel transaction via SDK, void with payments rejected
+  - AR aging: buckets calculated correctly across current / 1-30 / 90+
+  - SDK isolation: ModuleSdk surface only exposes 5 namespaces, no kernel
+    commands, storage sandboxed to module alias (kernel table names throw
+    'Table not found'), revoking ledger:write blocks createTransaction
+- 495 tests passing (1 skipped); cargo check + npm run check clean
+
+This phase is the proof that the entire plugin architecture works end to
+end. A real first-party module installs via the .zip flow (Phase 45),
+gets its own .sqlite via ATTACH (Phase 38), runs migrations (Phase 39),
+gets a registry entry + permission grants (Phases 40+41), uses the frozen
+SDK v1 (Phase 40), is subject to per-call permission enforcement (Phase 41),
+can register hooks + subscribe to events (Phase 42), can register UI
+extensions (Phase 43), and would auto-disable on repeated errors (Phase 44)
+— all through one consistent contract with no special-casing for first-party.
+
+
 
 ### Phase 45 — Distribution & Install Flow (2026-04-09)
 Modules ship as .zip packages containing module.json + optional module.sig +

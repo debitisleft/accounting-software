@@ -1,0 +1,36 @@
+{
+  "id": "com.bookkeeping.invoicing",
+  "name": "Invoicing & AR",
+  "version": "1.0.0",
+  "sdk_version": "1",
+  "description": "Create, send, and track invoices. Manage accounts receivable.",
+  "author": "Bookkeeping App",
+  "license": "MIT",
+  "permissions": [
+    "ledger:read",
+    "ledger:read_balances",
+    "ledger:write",
+    "accounts:read",
+    "accounts:write",
+    "contacts:read",
+    "contacts:write",
+    "documents:read",
+    "documents:write",
+    "events:subscribe",
+    "hooks:before_write",
+    "storage:own",
+    "ui:nav_item",
+    "ui:settings_pane",
+    "ui:transaction_action"
+  ],
+  "dependencies": [],
+  "entry_point": "frontend/index.html",
+  "migrations": [
+    {
+      "version": 1,
+      "file": "migrations/001_init.sql",
+      "description": "Create invoicing tables"
+    }
+  ],
+  "trusted": true
+}

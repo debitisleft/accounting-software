@@ -4047,6 +4047,97 @@ export class MockApi {
     }
   }
 
+  /// Phase 46: build a ModuleSdk-shaped object for the invoicing module (and
+  /// any other testable module). This is what tests pass to InvoicingModule
+  /// so module logic talks ONLY through the SDK surface — never directly to
+  /// MockApi internals. The returned object's storage methods key on the
+  /// module's ATTACH alias automatically.
+  makeSdkForModule(moduleId: string): {
+    ledger: {
+      createTransaction(input: {
+        date: string
+        description: string
+        reference?: string
+        entries: { account_id: string; debit: number; credit: number; memo?: string }[]
+      }): string
+      voidTransaction(txId: string): string
+    }
+    accounts: {
+      getChartOfAccounts(): Account[]
+      create(data: { code: string; name: string; acctType: string }): string
+    }
+    contacts: {
+      list(filters?: { contact_type?: string }): Contact[]
+    }
+    storage: {
+      createTable(name: string, columnsSql: string): void
+      insert(table: string, row: Record<string, unknown>): number
+      query(
+        table: string,
+        filters?: { column: string; op: string; value: unknown }[],
+      ): Record<string, unknown>[]
+      update(table: string, id: unknown, fields: Record<string, unknown>): number
+      delete(table: string, id: unknown): number
+    }
+    ui: {
+      registerNavItem(label: string, icon?: string): void
+      registerSettingsPane(label: string): void
+      registerTransactionAction(label: string, actionId: string): void
+    }
+  } {
+    const alias = this.moduleAlias(moduleId)
+    // Make sure the module is attached so storage calls succeed.
+    if (!this.attachedModules.includes(alias)) this.attachModuleDb(alias)
+    const self = this
+    return {
+      ledger: {
+        createTransaction: (input) => {
+          self.checkPermission(moduleId, 'ledger:write')
+          return self.createTransaction(input)
+        },
+        voidTransaction: (txId) => {
+          self.checkPermission(moduleId, 'ledger:write')
+          return self.voidTransaction(txId)
+        },
+      },
+      accounts: {
+        getChartOfAccounts: () => {
+          self.checkPermission(moduleId, 'accounts:read')
+          return self.getAccounts()
+        },
+        create: (data) => {
+          self.checkPermission(moduleId, 'accounts:write')
+          return self.createAccount(data)
+        },
+      },
+      contacts: {
+        list: (filters) => {
+          self.checkPermission(moduleId, 'contacts:read')
+          return self.listContacts(filters?.contact_type, undefined, 1)
+        },
+      },
+      storage: {
+        createTable: (name, columnsSql) => self.sdkStorageCreateTable(alias, name, columnsSql),
+        insert: (table, row) => self.sdkStorageInsert(alias, table, row),
+        query: (table, filters) => self.sdkStorageQuery(alias, table, filters),
+        update: (table, id, fields) => {
+          self.checkPermission(moduleId, 'storage:own')
+          return self.moduleUpdate(alias, table, id, fields)
+        },
+        delete: (table, id) => {
+          self.checkPermission(moduleId, 'storage:own')
+          return self.moduleDelete(alias, table, id)
+        },
+      },
+      ui: {
+        registerNavItem: (label, icon) => self.sdkRegisterNavItem(moduleId, label, icon),
+        registerSettingsPane: (label) => self.sdkRegisterSettingsPane(moduleId, label),
+        registerTransactionAction: (label, actionId) =>
+          self.sdkRegisterTransactionAction(moduleId, label, actionId),
+      },
+    }
+  }
+
   updateModule(moduleId: string, zipPath: string): typeof this.moduleRegistry[0] {
     this.guardFileOpen()
     const reg = this.moduleRegistry.find((m) => m.id === moduleId)

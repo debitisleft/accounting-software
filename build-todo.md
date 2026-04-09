@@ -366,7 +366,7 @@
 
 ---
 
-## PHASE 46 — Invoicing & AR Module (First Real Module)
+## PHASE 46 — Invoicing & AR Module (First Real Module) ✅ COMPLETE
 **Goal:** First module built entirely on the plugin SDK. Proves every layer works. Uses ONLY SDK methods — no backdoors.
 
 ### Module Manifest
@@ -433,8 +433,8 @@
 
 ---
 
-## CURRENT PHASE: 46
-## LAST COMPLETED CHECK: Phase 45 — distribution & install flow, 477 tests pass (2026-04-09)
+## CURRENT PHASE: 47 (Bills & AP module — future)
+## LAST COMPLETED CHECK: Phase 46 — invoicing & AR module, 495 tests pass (2026-04-09)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)
