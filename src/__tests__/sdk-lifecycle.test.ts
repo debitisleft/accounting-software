@@ -9,7 +9,14 @@ const validManifest = {
   description: 'Create and manage invoices',
   author: 'Example Corp',
   license: 'MIT',
-  permissions: ['ledger:read', 'ledger:write', 'storage:own'],
+  permissions: [
+    'ledger:read',
+    'ledger:write',
+    'accounts:read',
+    'storage:own',
+    'services:register',
+    'services:call',
+  ],
   entry_point: 'frontend/index.html',
 }
 
@@ -142,6 +149,7 @@ describe('Phase 40 — SDK v1 Core & Module Lifecycle', () => {
   describe('Service registry', () => {
     it('register_service + call_service round-trips', () => {
       mock.installModule(validManifest)
+      mock.installModule({ ...validManifest, id: 'com.example.reports', name: 'Reports' })
       mock.sdkRegisterService(validManifest.id, 'get_invoice', {
         description: 'Fetch invoice by id',
       })
@@ -158,8 +166,9 @@ describe('Phase 40 — SDK v1 Core & Module Lifecycle', () => {
     })
 
     it('call to unregistered service returns error', () => {
+      mock.installModule(validManifest)
       expect(() =>
-        mock.sdkCallService('caller', 'com.example.invoicing', 'no_such_thing', {}),
+        mock.sdkCallService(validManifest.id, 'com.example.missing', 'no_such_thing', {}),
       ).toThrow(/Service not found/)
     })
 

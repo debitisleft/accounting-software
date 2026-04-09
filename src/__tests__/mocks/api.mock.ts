@@ -158,6 +158,8 @@ export class MockApi {
   }[] = []
   serviceRegistry: { module_id: string; service_name: string; info: { description?: string | null; params_schema?: unknown; returns_schema?: unknown } }[] = []
   moduleSqliteFiles: Set<string> = new Set() // simulates filesystem .sqlite files
+  // Phase 41: Permission enforcer
+  modulePermissions: Map<string, Set<string>> = new Map()
   private moduleRowSeq = 1
   private nextId = 1
   private auditSeq = 0
@@ -253,6 +255,7 @@ export class MockApi {
     this.moduleRegistry = []
     this.serviceRegistry = []
     this.moduleSqliteFiles = new Set()
+    this.modulePermissions = new Map()
     // Retroactively record kernel migrations (matches Rust db.rs run_migrations)
     const kernelMigrations: [number, string][] = [
       [1, 'Initial kernel schema (accounts, transactions, journal_entries, settings)'],
@@ -3105,7 +3108,44 @@ export class MockApi {
     this.moduleRegistry.push(entry)
     // Reserve the module's .sqlite file slot (simulates filesystem creation)
     this.moduleSqliteFiles.add(this.moduleAlias(manifest.id))
+    // Phase 41: grant declared permissions (consent UI runs in host BEFORE this)
+    const granted = new Set<string>(manifest.permissions ?? [])
+    this.modulePermissions.set(manifest.id, granted)
     return entry
+  }
+
+  /// Phase 41: throws if the module hasn't been granted the scope. Mirrors
+  /// the Rust check_permission behavior with the same error string format.
+  private checkPermission(moduleId: string, scope: string): void {
+    const granted = this.modulePermissions.get(moduleId)
+    if (!granted || !granted.has(scope)) {
+      throw new Error(`Module '${moduleId}' does not have permission '${scope}'`)
+    }
+  }
+
+  grantModulePermission(moduleId: string, scope: string): void {
+    this.guardFileOpen()
+    if (!this.moduleRegistry.some((m) => m.id === moduleId)) {
+      throw new Error(`Module not found: ${moduleId}`)
+    }
+    let set = this.modulePermissions.get(moduleId)
+    if (!set) { set = new Set(); this.modulePermissions.set(moduleId, set) }
+    set.add(scope)
+  }
+
+  revokeModulePermission(moduleId: string, scope: string): void {
+    this.guardFileOpen()
+    const set = this.modulePermissions.get(moduleId)
+    if (!set || !set.has(scope)) {
+      throw new Error(`Module '${moduleId}' does not have permission '${scope}'`)
+    }
+    set.delete(scope)
+  }
+
+  getModulePermissions(moduleId: string): string[] {
+    this.guardFileOpen()
+    const set = this.modulePermissions.get(moduleId)
+    return set ? [...set].sort() : []
   }
 
   uninstallModule(moduleId: string, keepData?: boolean): void {
@@ -3126,6 +3166,8 @@ export class MockApi {
     }
     // Clear services for this module
     this.serviceRegistry = this.serviceRegistry.filter((s) => s.module_id !== moduleId)
+    // Phase 41: clear permissions
+    this.modulePermissions.delete(moduleId)
     // Remove from registry + clean migration_log + module_dependencies + pending
     this.moduleRegistry.splice(idx, 1)
     this.migrationLog = this.migrationLog.filter((l) => l.module_id !== alias)
@@ -3180,6 +3222,7 @@ export class MockApi {
     info: { description?: string | null; params_schema?: unknown; returns_schema?: unknown },
   ): void {
     this.guardFileOpen()
+    this.checkPermission(moduleId, 'services:register')
     if (!serviceName) throw new Error('service_name cannot be empty')
     // Replace any existing entry for the same (module_id, service_name)
     this.serviceRegistry = this.serviceRegistry.filter(
@@ -3195,7 +3238,7 @@ export class MockApi {
     params: unknown,
   ): { ok: boolean; module_id: string; service_name: string; params: unknown } {
     this.guardFileOpen()
-    void callerModuleId // Phase 41 will check services:call
+    this.checkPermission(callerModuleId, 'services:call')
     const svc = this.serviceRegistry.find(
       (s) => s.module_id === targetModuleId && s.service_name === serviceName,
     )
@@ -3216,20 +3259,35 @@ export class MockApi {
     moduleId: string,
     input: { date: string; description: string; entries: { account_id: string; debit: number; credit: number; memo?: string }[] },
   ): string {
-    void moduleId
+    this.checkPermission(moduleId, 'ledger:write')
     return this.createTransaction(input)
   }
 
   sdkGetChartOfAccounts(moduleId: string): Account[] {
-    void moduleId
+    this.checkPermission(moduleId, 'accounts:read')
     return this.getAccounts()
   }
 
+  /// Storage operations are keyed by the module's ATTACH alias (which may
+  /// differ from the registry id, e.g. com.example.foo → com_example_foo).
+  /// Permission checks use the registry id, so we accept either form here.
+  private resolvePermissionId(moduleIdOrAlias: string): string {
+    // If it matches a registered module id, use it; otherwise reverse-lookup
+    // by alias (replace _ with . is ambiguous, so iterate registry).
+    if (this.modulePermissions.has(moduleIdOrAlias)) return moduleIdOrAlias
+    for (const m of this.moduleRegistry) {
+      if (this.moduleAlias(m.id) === moduleIdOrAlias) return m.id
+    }
+    return moduleIdOrAlias
+  }
+
   sdkStorageCreateTable(moduleId: string, tableName: string, columnsSql: string): void {
+    this.checkPermission(this.resolvePermissionId(moduleId), 'storage:own')
     this.moduleCreateTable(moduleId, tableName, columnsSql)
   }
 
   sdkStorageInsert(moduleId: string, tableName: string, row: Record<string, unknown>): number {
+    this.checkPermission(this.resolvePermissionId(moduleId), 'storage:own')
     return this.moduleInsert(moduleId, tableName, row)
   }
 
@@ -3238,6 +3296,7 @@ export class MockApi {
     tableName: string,
     filters?: { column: string; op: string; value: unknown }[],
   ): Record<string, unknown>[] {
+    this.checkPermission(this.resolvePermissionId(moduleId), 'storage:own')
     return this.moduleQuery(moduleId, tableName, filters)
   }
 

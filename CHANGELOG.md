@@ -1,13 +1,96 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 40 Complete — SDK v1 Core & Module Lifecycle
+## STATUS: Phase 41 Complete — Permission Enforcer
 
 ## CURRENT STATE (2026-04-09)
-- 40 phases complete, 402 tests passing (1 skipped)
+- 41 phases complete, 415 tests passing (1 skipped)
 - Plugin architecture: directory format + module ATTACH + migration coordinator
-  + module_registry + frozen SDK v1 contract + service registry
+  + module_registry + frozen SDK v1 contract + service registry + per-scope
+  permission enforcement on every SDK call
 
 ## COMPLETED
+
+### Phase 41 — Permission Enforcer (2026-04-09)
+Granular per-scope permission checks on every SDK v1 call. Modules declare
+required scopes in their manifest; the user grants them at install time;
+the kernel enforces them at every call site. Foundation for safely running
+third-party modules.
+
+**Schema:** new `module_permissions` table — id, module_id REFERENCES
+module_registry(id) ON DELETE CASCADE, scope, granted_at, UNIQUE(module_id,
+scope). Recorded as kernel migration v10.
+
+**Permission taxonomy (21 scopes total) defined in src-tauri/src/permissions.rs:**
+- READ: ledger:read, ledger:read_balances, accounts:read, contacts:read,
+  reports:read, documents:read
+- WRITE: ledger:write, ledger:write_reversals, accounts:write, contacts:write,
+  reports:create_custom, documents:write
+- SYSTEM: events:subscribe, hooks:before_write, storage:own, services:register,
+  services:call, ui:nav_item, ui:settings_pane, ui:transaction_action,
+  ui:column_provider
+
+**permissions.rs (NEW):** check_permission(db, module_id, scope) → Ok or Err
+with the stable message format `Module '{id}' does not have permission
+'{scope}'`. grant_internal helper used by install. revoke_all helper for
+uninstall (currently CASCADE handles it but kept for future explicit use).
+
+**Permission enforcement wired into every sdk_v1.rs method (24 sites):**
+- Ledger: sdk_create_transaction → ledger:write,
+  sdk_void_transaction → ledger:write,
+  sdk_get_account_balance → ledger:read_balances,
+  sdk_get_trial_balance → ledger:read_balances,
+  sdk_get_journal_entries → ledger:read
+- Account: create/update/deactivate → accounts:write,
+  get_chart_of_accounts → accounts:read
+- Contact: create → contacts:write, get/list/ledger → contacts:read
+- Document: attach/delete → documents:write, get → documents:read
+- Reports: income/balance/cash_flow → reports:read
+- Storage: all five sdk_storage_* → storage:own
+- Service: sdk_register_service → services:register,
+  sdk_call_service → services:call (checked against the *caller* module id,
+  not the target — modules pay for the right to make outbound calls)
+
+**Lifecycle integration:**
+- install_module now inserts a row into module_permissions for each scope in
+  the manifest's permissions array. The host UI shows the consent screen
+  BEFORE invoking install_module — by the time the command runs, the user has
+  approved the full scope set.
+- uninstall_module explicitly DELETEs from module_permissions for the module
+  (in addition to the FK CASCADE) before removing the registry row.
+
+**3 new commands (permissions.rs):**
+- grant_module_permission(module_id, scope) — verifies the module exists,
+  upserts the row. Used for admin manual grants beyond manifest scope.
+- revoke_module_permission(module_id, scope) — deletes the row, errors if
+  the scope wasn't granted.
+- get_module_permissions(module_id) — returns sorted list of granted scopes.
+
+**api.ts + MockApi parity:** all 3 commands wired. MockApi keeps a
+`Map<module_id, Set<scope>>` and runs the same check at the top of every SDK
+method. The mock translates module aliases (com_example_foo) back to registry
+ids (com.example.foo) for storage permission checks via resolvePermissionId.
+
+**Phase 40 SDK tests updated:** validManifest gained accounts:read,
+services:register, and services:call so the existing SDK round-trip tests still
+pass under enforcement. The "call to unregistered service" test now installs
+the caller module first to satisfy services:call before exercising the
+not-found branch.
+
+- 13 new tests in permissions.test.ts: SDK call with permission succeeds, SDK
+  call without permission throws stable error message, install grants from
+  manifest, uninstall clears, grant unblocks subsequent call, revoke blocks
+  subsequent call, ledger:read without ledger:write distinction, no-permission
+  module is fully inert, storage:own gating + grant, get_module_permissions
+  sorted output, grant requires module to exist, revoke rejects ungranted
+  scope, services:call enforced on caller side
+- 415 tests passing (1 skipped); cargo check + npm run check clean
+
+**Deferred:** Consent UI dialog (the host React UI that lists requested
+permissions before calling install_module) — left for the Phase 45 module
+manager UI work, where the install flow gets a real file picker and progress
+view. The kernel-side enforcement is fully in place today.
+
+
 
 ### Phase 40 — SDK v1 Core & Module Lifecycle (2026-04-09)
 The central nervous system of the plugin architecture: module manifest,

@@ -13,6 +13,7 @@ use tauri::State;
 
 use crate::DbState;
 use crate::commands;
+use crate::permissions::check_permission;
 
 pub const SDK_VERSION: &str = "1";
 
@@ -33,7 +34,7 @@ pub async fn sdk_create_transaction(
     journal_type: Option<String>,
     entries: Vec<commands::JournalEntryInput>,
 ) -> Result<String, String> {
-    let _ = module_id; // Phase 41 will check ledger:write here
+    check_permission(&db, &module_id, "ledger:write")?;
     commands::create_transaction(db, date, description, reference, journal_type, entries, None).await
 }
 
@@ -44,7 +45,8 @@ pub async fn sdk_void_transaction(
     tx_id: String,
     reason: Option<String>,
 ) -> Result<String, String> {
-    let _ = (module_id, reason); // engine void_transaction does not currently take a reason
+    let _ = reason; // engine void_transaction does not currently take a reason
+    check_permission(&db, &module_id, "ledger:write")?;
     commands::void_transaction(db, tx_id).await
 }
 
@@ -55,7 +57,7 @@ pub async fn sdk_get_account_balance(
     account_id: String,
     as_of: Option<String>,
 ) -> Result<i64, String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "ledger:read_balances")?;
     commands::get_account_balance(db, account_id, as_of).await
 }
 
@@ -64,7 +66,7 @@ pub async fn sdk_get_trial_balance(
     db: State<'_, DbState>,
     module_id: String,
 ) -> Result<commands::TrialBalanceResult, String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "ledger:read_balances")?;
     commands::get_trial_balance(db, None, None).await
 }
 
@@ -79,7 +81,7 @@ pub async fn sdk_get_journal_entries(
     account_id: Option<String>,
     memo_search: Option<String>,
 ) -> Result<commands::ListTransactionsResult, String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "ledger:read")?;
     commands::list_transactions(db, offset, limit, start_date, end_date, account_id, memo_search).await
 }
 
@@ -94,7 +96,7 @@ pub async fn sdk_create_account(
     acct_type: String,
     parent_id: Option<String>,
 ) -> Result<String, String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "accounts:write")?;
     commands::create_account(db, code, name, acct_type, parent_id).await
 }
 
@@ -106,7 +108,7 @@ pub async fn sdk_update_account(
     name: Option<String>,
     code: Option<String>,
 ) -> Result<(), String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "accounts:write")?;
     commands::update_account(db, id, name, code).await
 }
 
@@ -116,7 +118,7 @@ pub async fn sdk_deactivate_account(
     module_id: String,
     id: String,
 ) -> Result<(), String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "accounts:write")?;
     commands::deactivate_account(db, id).await
 }
 
@@ -125,7 +127,7 @@ pub async fn sdk_get_chart_of_accounts(
     db: State<'_, DbState>,
     module_id: String,
 ) -> Result<Vec<commands::Account>, String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "accounts:read")?;
     commands::get_accounts(db).await
 }
 
@@ -146,7 +148,7 @@ pub async fn sdk_create_contact(
     module_id: String,
     data: SdkContactInput,
 ) -> Result<String, String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "contacts:write")?;
     commands::create_contact(
         db,
         data.contact_type,
@@ -164,7 +166,7 @@ pub async fn sdk_get_contact(
     module_id: String,
     id: String,
 ) -> Result<commands::Contact, String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "contacts:read")?;
     commands::get_contact(db, id).await
 }
 
@@ -176,7 +178,7 @@ pub async fn sdk_list_contacts(
     search: Option<String>,
     is_active: Option<i64>,
 ) -> Result<Vec<commands::Contact>, String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "contacts:read")?;
     commands::list_contacts(db, contact_type, search, is_active).await
 }
 
@@ -188,7 +190,7 @@ pub async fn sdk_get_contact_ledger(
     start_date: Option<String>,
     end_date: Option<String>,
 ) -> Result<commands::ContactLedgerResult, String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "contacts:read")?;
     commands::get_contact_ledger(db, contact_id, start_date, end_date).await
 }
 
@@ -204,7 +206,7 @@ pub async fn sdk_attach_document(
     filename: String,
     description: Option<String>,
 ) -> Result<String, String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "documents:write")?;
     commands::attach_document(db, entity_type, entity_id, file_path, filename, description).await
 }
 
@@ -215,7 +217,7 @@ pub async fn sdk_get_documents(
     entity_type: String,
     entity_id: String,
 ) -> Result<Vec<commands::DocumentMeta>, String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "documents:read")?;
     commands::list_documents(db, entity_type, entity_id).await
 }
 
@@ -225,7 +227,7 @@ pub async fn sdk_delete_document(
     module_id: String,
     document_id: String,
 ) -> Result<(), String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "documents:write")?;
     commands::delete_document(db, document_id).await
 }
 
@@ -238,7 +240,7 @@ pub async fn sdk_get_income_statement(
     start_date: String,
     end_date: String,
 ) -> Result<commands::IncomeStatementResult, String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "reports:read")?;
     commands::get_income_statement(db, start_date, end_date, None, None).await
 }
 
@@ -248,7 +250,7 @@ pub async fn sdk_get_balance_sheet(
     module_id: String,
     as_of: String,
 ) -> Result<commands::BalanceSheetResult, String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "reports:read")?;
     commands::get_balance_sheet(db, as_of).await
 }
 
@@ -259,7 +261,7 @@ pub async fn sdk_get_cash_flow(
     start_date: String,
     end_date: String,
 ) -> Result<commands::CashFlowStatement, String> {
-    let _ = module_id;
+    check_permission(&db, &module_id, "reports:read")?;
     commands::get_cash_flow_statement(db, start_date, end_date).await
 }
 
@@ -272,6 +274,7 @@ pub async fn sdk_storage_create_table(
     table_name: String,
     columns_sql: String,
 ) -> Result<(), String> {
+    check_permission(&db, &module_id, "storage:own")?;
     commands::module_create_table(db, module_id, table_name, columns_sql).await
 }
 
@@ -282,6 +285,7 @@ pub async fn sdk_storage_insert(
     table_name: String,
     row: serde_json::Value,
 ) -> Result<i64, String> {
+    check_permission(&db, &module_id, "storage:own")?;
     commands::module_insert(db, module_id, table_name, row).await
 }
 
@@ -292,6 +296,7 @@ pub async fn sdk_storage_query(
     table_name: String,
     filters: Option<Vec<commands::ModuleQueryFilter>>,
 ) -> Result<Vec<serde_json::Value>, String> {
+    check_permission(&db, &module_id, "storage:own")?;
     commands::module_query(db, module_id, table_name, filters).await
 }
 
@@ -303,6 +308,7 @@ pub async fn sdk_storage_update(
     id: serde_json::Value,
     fields: serde_json::Value,
 ) -> Result<usize, String> {
+    check_permission(&db, &module_id, "storage:own")?;
     commands::module_update(db, module_id, table_name, id, fields).await
 }
 
@@ -313,6 +319,7 @@ pub async fn sdk_storage_delete(
     table_name: String,
     id: serde_json::Value,
 ) -> Result<usize, String> {
+    check_permission(&db, &module_id, "storage:own")?;
     commands::module_delete(db, module_id, table_name, id).await
 }
 
@@ -341,7 +348,10 @@ pub async fn sdk_register_service(
     service_name: String,
     info: ServiceHandlerInfo,
 ) -> Result<(), String> {
-    crate::commands::validate_ident_pub(&module_id)?;
+    if module_id.is_empty() {
+        return Err("module_id cannot be empty".to_string());
+    }
+    check_permission(&db, &module_id, "services:register")?;
     if service_name.is_empty() {
         return Err("service_name cannot be empty".to_string());
     }
@@ -364,7 +374,7 @@ pub async fn sdk_call_service(
     service_name: String,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let _ = caller_module_id; // Phase 41 will check services:call
+    check_permission(&db, &caller_module_id, "services:call")?;
     let reg = db.service_registry.lock().map_err(|e| e.to_string())?;
     let svc = reg.get(&(target_module_id.clone(), service_name.clone()))
         .ok_or_else(|| format!("Service not found: {}::{}", target_module_id, service_name))?;

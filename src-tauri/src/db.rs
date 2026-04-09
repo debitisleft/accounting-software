@@ -357,6 +357,16 @@ fn create_tables(conn: &Connection) -> Result<()> {
             error_message TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS module_permissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id TEXT NOT NULL REFERENCES module_registry(id) ON DELETE CASCADE,
+            scope TEXT NOT NULL,
+            granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(module_id, scope)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_module_permissions_module ON module_permissions(module_id);
+
         CREATE TABLE IF NOT EXISTS module_pending_migrations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             module_id TEXT NOT NULL,
@@ -447,6 +457,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             (7, "Add is_reconciled to journal_entries"),
             (8, "Add migration_log, module_dependencies, module_pending_migrations"),
             (9, "Add module_registry (Phase 40 SDK v1)"),
+            (10, "Add module_permissions (Phase 41 enforcer)"),
         ];
         for (version, description) in kernel_migrations {
             conn.execute(

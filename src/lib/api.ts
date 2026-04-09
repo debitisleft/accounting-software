@@ -874,6 +874,16 @@ export const api = {
 
   sdkListServices: () =>
     invoke<RegisteredService[]>('sdk_list_services'),
+
+  // Phase 41: Permission management
+  grantModulePermission: (moduleId: string, scope: string) =>
+    invoke<void>('grant_module_permission', { moduleId, scope }),
+
+  revokeModulePermission: (moduleId: string, scope: string) =>
+    invoke<void>('revoke_module_permission', { moduleId, scope }),
+
+  getModulePermissions: (moduleId: string) =>
+    invoke<string[]>('get_module_permissions', { moduleId }),
 }
 
 export interface ModuleManifest {

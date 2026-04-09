@@ -5,6 +5,7 @@ use tauri::Manager;
 mod db;
 mod commands;
 mod sdk_v1;
+mod permissions;
 
 pub struct DbState {
     pub conn: Mutex<Option<rusqlite::Connection>>,
@@ -170,6 +171,10 @@ pub fn run() {
             sdk_v1::sdk_register_service,
             sdk_v1::sdk_call_service,
             sdk_v1::sdk_list_services,
+            // Phase 41: Permission Enforcer
+            permissions::grant_module_permission,
+            permissions::revoke_module_permission,
+            permissions::get_module_permissions,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

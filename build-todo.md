@@ -148,7 +148,7 @@
 
 ---
 
-## PHASE 41 — Permission Enforcer (Fix #4)
+## PHASE 41 — Permission Enforcer (Fix #4) ✅ COMPLETE
 **Goal:** Granular permission checks on every SDK call. Consent UI on install.
 
 ### Permission Taxonomy
@@ -433,8 +433,8 @@
 
 ---
 
-## CURRENT PHASE: 41
-## LAST COMPLETED CHECK: Phase 40 — SDK v1 core & module lifecycle, 402 tests pass (2026-04-09)
+## CURRENT PHASE: 42
+## LAST COMPLETED CHECK: Phase 41 — permission enforcer, 415 tests pass (2026-04-09)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)

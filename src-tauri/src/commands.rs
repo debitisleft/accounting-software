@@ -5524,6 +5524,16 @@ pub async fn install_module(
         ],
     ).map_err(|e| format!("Failed to register module: {}", e))?;
 
+    // Phase 41: Insert each declared permission scope into module_permissions.
+    // The host UI shows the consent screen BEFORE calling install_module — by
+    // the time we get here, the user has approved the manifest's full scope set.
+    for scope in &manifest.permissions {
+        conn.execute(
+            "INSERT OR IGNORE INTO module_permissions (module_id, scope) VALUES (?1, ?2)",
+            params![manifest.id, scope],
+        ).map_err(|e| format!("Failed to grant permission: {}", e))?;
+    }
+
     // Read back the inserted row
     let entry = conn.query_row(
         &format!("SELECT {} FROM module_registry WHERE id = ?1", REGISTRY_COLUMNS),
@@ -5591,6 +5601,9 @@ pub async fn uninstall_module(
     // Remove from registry + clean migration_log + module_dependencies + pending
     let guard = get_conn(&db)?;
     let conn = guard.as_ref().unwrap();
+    // Phase 41: explicitly clear permissions before deleting registry row
+    conn.execute("DELETE FROM module_permissions WHERE module_id = ?1", params![module_id])
+        .map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM module_registry WHERE id = ?1", params![module_id])
         .map_err(|e| e.to_string())?;
     conn.execute("DELETE FROM migration_log WHERE module_id = ?1", params![alias])
