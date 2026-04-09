@@ -764,4 +764,44 @@ export const api = {
 
   getDocumentCount: (entityType: string, entityId: string) =>
     invoke<number>('get_document_count', { entityType, entityId }),
+
+  // Phase 38: Module Storage Sandbox
+  attachModuleDb: (moduleId: string) =>
+    invoke<void>('attach_module_db', { moduleId }),
+
+  detachModuleDb: (moduleId: string) =>
+    invoke<void>('detach_module_db', { moduleId }),
+
+  listAttachedModules: () =>
+    invoke<string[]>('list_attached_modules'),
+
+  moduleCreateTable: (moduleId: string, tableName: string, columnsSql: string) =>
+    invoke<void>('module_create_table', { moduleId, tableName, columnsSql }),
+
+  moduleInsert: (moduleId: string, tableName: string, row: Record<string, unknown>) =>
+    invoke<number>('module_insert', { moduleId, tableName, rowJson: row }),
+
+  moduleQuery: (
+    moduleId: string,
+    tableName: string,
+    filters?: { column: string; op: string; value: unknown }[],
+  ) =>
+    invoke<Record<string, unknown>[]>('module_query', {
+      moduleId,
+      tableName,
+      filters: filters ?? null,
+    }),
+
+  moduleUpdate: (
+    moduleId: string,
+    tableName: string,
+    id: unknown,
+    fields: Record<string, unknown>,
+  ) => invoke<number>('module_update', { moduleId, tableName, id, fields }),
+
+  moduleDelete: (moduleId: string, tableName: string, id: unknown) =>
+    invoke<number>('module_delete', { moduleId, tableName, id }),
+
+  moduleExecuteMigration: (moduleId: string, version: string, sql: string) =>
+    invoke<void>('module_execute_migration', { moduleId, version, sql }),
 }

@@ -1,30 +1,125 @@
 use rusqlite::{Connection, Result, params};
 use uuid::Uuid;
 use chrono::Utc;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-/// Create a new .sqlite book file at the given path.
-/// Sets up schema, seeds default accounts, and stores company_name in settings.
-pub fn create_book_file(path: &str, company_name: &str) -> Result<Connection> {
-    let conn = Connection::open(path)?;
-    conn.execute_batch("PRAGMA journal_mode=WAL;")?;
-    conn.execute_batch("PRAGMA foreign_keys=ON;")?;
-
-    create_tables(&conn)?;
-    run_migrations(&conn)?;
-    seed_default_settings(&conn, company_name)?;
-    seed_accounts(&conn)?;
-
-    Ok(conn)
+/// Result of resolving a company file path. Always returns the company directory
+/// and the path to company.sqlite inside it.
+pub struct CompanyPaths {
+    pub company_dir: PathBuf,
+    pub company_db: PathBuf,
 }
 
-/// Open an existing .sqlite book file. Validates expected tables exist.
-pub fn open_book_file(path: &str) -> std::result::Result<Connection, String> {
+/// Resolve a user-supplied path into a company directory + company.sqlite path.
+/// Handles three cases:
+///   1. Path is an existing directory → use directly
+///   2. Path is an existing legacy .sqlite file → AUTO-MIGRATE to directory format
+///   3. Path does not exist → treat as new directory to create
+pub fn resolve_company_paths(input_path: &str) -> std::result::Result<CompanyPaths, String> {
+    let p = Path::new(input_path);
+
+    if p.is_dir() {
+        return Ok(CompanyPaths {
+            company_db: p.join("company.sqlite"),
+            company_dir: p.to_path_buf(),
+        });
+    }
+
+    if p.is_file() {
+        // Legacy single .sqlite file → migrate to directory format.
+        // Convert /path/MyCompany.sqlite → /path/MyCompany/company.sqlite
+        let parent = p.parent().ok_or("Cannot determine parent directory")?;
+        let stem = p.file_stem().ok_or("Cannot determine file stem")?
+            .to_string_lossy().to_string();
+        let new_dir = parent.join(&stem);
+
+        std::fs::create_dir_all(&new_dir)
+            .map_err(|e| format!("Failed to create company directory: {}", e))?;
+
+        let new_db = new_dir.join("company.sqlite");
+        if !new_db.exists() {
+            // Move the legacy file. Also move any -wal/-shm sidecar files.
+            std::fs::rename(p, &new_db)
+                .map_err(|e| format!("Failed to migrate legacy file: {}", e))?;
+            let wal = parent.join(format!("{}.sqlite-wal", stem));
+            if wal.exists() {
+                let _ = std::fs::rename(&wal, new_dir.join("company.sqlite-wal"));
+            }
+            let shm = parent.join(format!("{}.sqlite-shm", stem));
+            if shm.exists() {
+                let _ = std::fs::rename(&shm, new_dir.join("company.sqlite-shm"));
+            }
+        }
+
+        // Migrate legacy {file}_documents/ → {company_dir}/documents/
+        let legacy_docs = parent.join(format!("{}_documents", stem));
+        let new_docs = new_dir.join("documents");
+        if legacy_docs.exists() && !new_docs.exists() {
+            let _ = std::fs::rename(&legacy_docs, &new_docs);
+        }
+
+        return Ok(CompanyPaths {
+            company_db: new_db,
+            company_dir: new_dir,
+        });
+    }
+
+    // Path doesn't exist. Treat as a new directory to create.
+    Ok(CompanyPaths {
+        company_db: p.join("company.sqlite"),
+        company_dir: p.to_path_buf(),
+    })
+}
+
+/// Ensure the standard subdirectory layout exists inside a company directory.
+pub fn ensure_company_subdirs(company_dir: &Path) -> std::result::Result<(), String> {
+    for sub in &["modules", "documents", "backups"] {
+        std::fs::create_dir_all(company_dir.join(sub))
+            .map_err(|e| format!("Failed to create {}: {}", sub, e))?;
+    }
+    Ok(())
+}
+
+/// Create a new company directory with company.sqlite inside, plus standard subdirectories.
+pub fn create_book_file(path: &str, company_name: &str) -> std::result::Result<(Connection, PathBuf), String> {
+    let paths = resolve_company_paths(path)?;
+    std::fs::create_dir_all(&paths.company_dir)
+        .map_err(|e| format!("Failed to create company directory: {}", e))?;
+    ensure_company_subdirs(&paths.company_dir)?;
+
+    if paths.company_db.exists() {
+        return Err(format!("Company file already exists: {}", paths.company_db.display()));
+    }
+
+    let conn = Connection::open(&paths.company_db)
+        .map_err(|e| format!("Failed to create database: {}", e))?;
+    conn.execute_batch("PRAGMA journal_mode=WAL;").map_err(|e| e.to_string())?;
+    conn.execute_batch("PRAGMA foreign_keys=ON;").map_err(|e| e.to_string())?;
+
+    create_tables(&conn).map_err(|e| e.to_string())?;
+    run_migrations(&conn).map_err(|e| e.to_string())?;
+    seed_default_settings(&conn, company_name).map_err(|e| e.to_string())?;
+    seed_accounts(&conn).map_err(|e| e.to_string())?;
+
+    Ok((conn, paths.company_dir))
+}
+
+/// Open an existing company file (directory or legacy .sqlite). Validates schema.
+/// Returns (connection, company_directory_path).
+pub fn open_book_file(path: &str) -> std::result::Result<(Connection, PathBuf), String> {
     if !Path::new(path).exists() {
         return Err(format!("File not found: {}", path));
     }
 
-    let conn = Connection::open(path).map_err(|e| format!("Failed to open database: {}", e))?;
+    let paths = resolve_company_paths(path)?;
+    ensure_company_subdirs(&paths.company_dir)?;
+
+    if !paths.company_db.exists() {
+        return Err(format!("Company database not found: {}", paths.company_db.display()));
+    }
+
+    let conn = Connection::open(&paths.company_db)
+        .map_err(|e| format!("Failed to open database: {}", e))?;
     conn.execute_batch("PRAGMA journal_mode=WAL;").map_err(|e| e.to_string())?;
     conn.execute_batch("PRAGMA foreign_keys=ON;").map_err(|e| e.to_string())?;
 
@@ -44,7 +139,7 @@ pub fn open_book_file(path: &str) -> std::result::Result<Connection, String> {
     // Run any pending migrations on older files
     run_migrations(&conn).map_err(|e| e.to_string())?;
 
-    Ok(conn)
+    Ok((conn, paths.company_dir))
 }
 
 /// Close the book file cleanly (WAL checkpoint).

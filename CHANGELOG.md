@@ -1,9 +1,70 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 37 In Progress — Packaging & Distribution
+## STATUS: Phase 38 Complete — Storage Sandbox & Directory Structure
 
-## CURRENT STATE (2026-04-08)
-- 36 phases complete + Phase 37 partial, 352 tests passing
+## CURRENT STATE (2026-04-09)
+- 38 phases complete, 370 tests passing (1 skipped)
+- Plugin architecture foundation: company files are now directories with kernel
+  company.sqlite + per-module .sqlite via ATTACH + documents/ + backups/
+
+## COMPLETED
+
+### Phase 38 — Storage Sandbox & Directory Structure (2026-04-09)
+**Major architectural shift:** Company files transition from a single .sqlite
+to a DIRECTORY containing the kernel company.sqlite plus modules/, documents/,
+and backups/ subdirectories. Foundation for the plugin SDK (Phases 39–46).
+
+- db.rs: added `resolve_company_paths()` — handles 3 cases:
+  - existing directory → use directly
+  - existing legacy .sqlite file → AUTO-MIGRATE: create dir, move file (+ wal/shm
+    sidecars and any legacy {file}_documents/) into it
+  - non-existent path → treat as new directory
+- `create_book_file()` now returns `(Connection, PathBuf)` and creates
+  modules/, documents/, backups/ subdirs
+- `open_book_file()` validates schema and ensures subdirs exist
+- DbState gained `company_dir: Mutex<Option<String>>` and
+  `attached_modules: Mutex<Vec<String>>`
+- `close_file` and `open_file` / `create_new_file` now DETACH all modules
+  before closing
+- Document storage migrated from `{company_file}_documents/` to
+  `{company_dir}/documents/`
+- Backups migrated to `{company_dir}/backups/` (single-file VACUUM INTO format;
+  full-directory zip deferred to add `zip` crate dependency)
+- import_database now writes through company_dir/company.sqlite
+
+**New module storage commands (9 total):**
+- `attach_module_db(module_id)` — creates modules/{id}.sqlite if needed,
+  ATTACHes as `module_{id}`, initializes `_migrations` table
+- `detach_module_db(module_id)` — DETACHes
+- `list_attached_modules()` — returns currently attached IDs
+- `module_create_table(module_id, table_name, columns_sql)` — DDL into module
+  schema; rejects `;` in columns_sql, validates idents
+- `module_insert(module_id, table_name, row_json)` — structured insert,
+  returns rowid
+- `module_query(module_id, table_name, filters?)` — structured filters
+  (=, !=, <, >, <=, >=, LIKE), no raw SQL
+- `module_update(module_id, table_name, id, fields)` — by id
+- `module_delete(module_id, table_name, id)` — by id
+- `module_execute_migration(module_id, version, sql)` — install/upgrade only;
+  records version in `_migrations` (idempotent)
+
+**Security:** every module command requires the module to be currently
+attached, validates module_id and column/table names against
+`^[A-Za-z_][A-Za-z0-9_]*$`, and uses parameter binding for values. Modules
+cannot read/write the kernel `company.sqlite` through this API and cannot
+access another module's schema (different ATTACH alias).
+
+**API/Mock parity:** all 9 commands wired into api.ts; MockApi simulates
+ATTACH with per-module in-memory stores and the same identifier validation,
+filter logic, and isolation guarantees.
+
+- 18 new tests in module-storage.test.ts covering directory format derivation,
+  ATTACH/DETACH idempotency, identifier validation/rejection, full CRUD,
+  filter ops (=/>/LIKE/AND), cross-module isolation, kernel-table isolation,
+  detached-module rejection, migration idempotency, document attach round-trip
+- 370 tests passing (1 skipped); npm run check clean; cargo check clean
+
+
 - 35+ Rust commands, full MockApi coverage
 - Features: .sqlite file architecture (create/open/close), chart of accounts CRUD, journal entry
   with journal types (GENERAL/ADJUSTING/CLOSING/REVERSING/OPENING), auto-reference numbers,

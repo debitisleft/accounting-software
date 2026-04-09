@@ -10,282 +10,442 @@
 
 ---
 
-## PHASES 1–18 ✅ COMPLETE
-See previous build-todo files for full history.
+## PHASES 1–31 ✅ COMPLETE
 - Phases 1–8: Scaffold, schema, engine, tests, UI, reports, integration, Tauri migration
-- Phases 9–17: App shell, account CRUD, transaction register, editing/voiding, backup, CSV export, settings, period management, report enhancements
-- Phase 18: File-based .sqlite architecture (WelcomeScreen, multi-file, recent files)
-- 85 tests passing at end of Phase 18
-
----
-
-## PHASE 19 — Engine Audit Bug Fixes ✅ COMPLETE
-
-- [x] Fix: `createTransaction` must check period locks — reject if date is in locked period (CRITICAL)
-- [x] Fix: Cannot void a reversing entry — check `void_of IS NOT NULL` before voiding
-- [x] Fix: Cannot edit a voided transaction — check `is_void = 1` in updateTransaction and updateTransactionLines
-- [x] Fix: Cannot create transactions referencing deactivated accounts — check `is_active` in createTransaction
-- [x] Fix: Duplicate period locks on same end_date prevented — change `>` to `>=` in lock check
-- [x] All 5 fixes applied to both Rust and MockApi
-- [x] Run full suite: 85 existing + 55 audit tests = 140 total, 0 failures
-- [x] CHECK: `npx vitest run` — 140 tests pass, `npx tsc --noEmit` clean
-
----
-
-## PHASES 20–31 ✅ COMPLETE
-- Phase 20: Journal types & transaction classification
-- Phase 21: Retained earnings & opening balances
-- Phase 22: Fiscal year close
-- Phase 23: Module foundation
-- Phase 24: Cash flow statement
-- Phase 25: Account hierarchy in reports
-- Phase 26: Excel-style transaction register UX
-- Phase 27: CSV import with column mapping
-- Phase 28: Recurring transactions
-- Phase 29: Accrual vs cash basis reporting
-- Phase 30: Bank feed pipeline (Plaid integration)
-- Phase 31: Reconciliation service
+- Phases 9–18: App shell, account CRUD, transaction register, editing/voiding, backup, CSV export, settings, period management, report enhancements, file-based .sqlite architecture
+- Phase 19: Engine audit bug fixes (5 bugs fixed, 140 tests)
+- Phases 20–31: Journal types, retained earnings, fiscal year close, module foundation, cash flow, account hierarchy, Excel-style register, CSV import, recurring transactions, accrual/cash basis, bank feeds, reconciliation
 - 194 tests passing at end of Phase 31
 
 ---
 
-## PHASE 32 — Dimensions/Tags Engine
-**Goal:** User-defined tags (class, location, project, department) on transaction lines. Junction-table pattern. All reports filterable by dimensions.
+## PHASES 32–37 ✅ COMPLETE
+- Phase 32: Dimensions/tags engine (+17 tests)
+- Phase 33: Contact registry (+10 tests)
+- Phase 34: General ledger view (+10 tests)
+- Phase 35: Document attachments (+8 tests)
+- Phase 36: V2 audit fixes (+11 tests)
+- Phase 37: Packaging & distribution (app icon, Windows .msi/.exe builds, build fixes)
+- 352 tests passing at end of Phase 37
+
+---
+
+## PHASE 38 — Storage Sandbox & Directory Structure (Fix #2, #10) ✅ COMPLETE
+**Goal:** Transition from single .sqlite files to company directories. Module storage via SQLite ATTACH. Document directory migration.
+
+### Directory-Based Company Files
+- [x] Update `create_book_file` — creates directory with company.sqlite + modules/ + documents/ + backups/ subdirectories
+- [x] Update `open_book_file` — detects file vs directory, opens company.sqlite from within directory
+- [x] Auto-migration: opening a legacy single .sqlite creates directory structure and moves file into it
+- [x] Update recent-files.json to point to directory paths after migration
+- [x] Store company directory path in Rust state (not just connection)
+- [x] Update `close_book_file` — WAL checkpoint, DETACH all module DBs, clear state
+
+### Module Storage via ATTACH
+- [x] `attach_module_db(module_id)` — creates modules/{module_id}.sqlite if needed, ATTACHes as module_{module_id}
+- [x] `detach_module_db(module_id)` — DETACHes module database
+- [x] `list_attached_modules()` — returns currently attached module IDs
+- [x] `module_create_table(module_id, table_name, columns_sql)` — creates table in module's attached DB, validates input
+- [x] `module_insert(module_id, table_name, row_json)` — inserts row, returns ID
+- [x] `module_query(module_id, table_name, filters_json?)` — structured query (no raw SQL), filter ops: =, !=, <, >, <=, >=, LIKE
+- [x] `module_update(module_id, table_name, id, fields_json)` — updates row by ID
+- [x] `module_delete(module_id, table_name, id)` — deletes row by ID
+- [x] `module_execute_migration(module_id, version, sql)` — DDL against module DB, records in module's _migrations table
+- [x] Security: every module storage command validates module_id is attached, sanitizes identifiers, no cross-module access
+
+### Document & Backup Migration
+- [x] Update document attachment system to use {company_dir}/documents/ path
+- [x] Migrate existing {file}_documents/ to {company_dir}/documents/ on open (handled in resolve_company_paths)
+- [x] Update backup system — writes to {company_dir}/backups/. Note: full directory zip deferred (requires `zip` crate dep); current backup is single-file VACUUM INTO of company.sqlite.
+
+### All commands → api.ts + MockApi
+- [x] MockApi simulates ATTACH with separate in-memory objects per module_id
+
+### Tests
+- [x] 18 new tests added in src/__tests__/module-storage.test.ts
+- [x] CHECK: Directory-based files work, module ATTACH/DETACH works, module CRUD works, 370 tests pass (1 skipped), `npm run check` clean
+
+---
+
+## PHASE 39 — Migration Coordinator (Fix #7)
+**Goal:** Per-module versioned migrations with dependency enforcement and failure handling.
 
 ### Schema
-- [x] Add `dimensions` table: id, type TEXT, name TEXT, code TEXT, parent_id INTEGER, is_active INTEGER DEFAULT 1, created_at TEXT. UNIQUE(type, name)
-- [x] Add `transaction_line_dimensions` junction table: id, transaction_line_id INTEGER REFERENCES transaction_lines(id), dimension_id INTEGER REFERENCES dimensions(id). UNIQUE(transaction_line_id, dimension_id)
-- [x] Index on transaction_line_dimensions(dimension_id) for reverse lookups
+- [ ] Add `migration_log` table: id, module_id, version, description, checksum (SHA-256), applied_at, success, error_message. UNIQUE(module_id, version)
+- [ ] Add `module_dependencies` table: id, module_id, depends_on_module_id, min_version. UNIQUE(module_id, depends_on_module_id)
 
-### Commands (each: commands.rs + api.ts + MockApi + tests)
-- [x] `create_dimension(type, name, code?, parent_id?)` — validates unique(type, name), parent exists and same type
-- [x] `update_dimension(id, name?, code?, parent_id?, is_active?)` — warn if deactivating with active references
-- [x] `list_dimensions(type?)` — all or filtered by type, with hierarchy info (depth, parent chain)
-- [x] `list_dimension_types()` — returns distinct types in use
-- [x] `delete_dimension(id)` — only if no transaction lines reference it, otherwise error
+### Commands
+- [ ] `register_module_migrations(module_id, migrations[])` — stores pending migrations, validates checksums
+- [ ] `run_module_migrations(module_id)` — checks dependencies, topological sort, runs pending migrations in order, each in own transaction, records in migration_log, stops on failure
+- [ ] `get_migration_status(module_id?)` — latest version, pending count, failures
+- [ ] `register_module_dependency(module_id, depends_on, min_version?)` — records dependency
+- [ ] `check_dependency_graph()` — validates full graph, returns topological order or circular dependency error
 
-### Transaction Integration
-- [x] Update `createTransaction` to accept optional `dimensions: Array<{line_index, dimension_id}>` — insert junction rows after lines. Validate dimension_ids exist and are active
-- [x] Update `updateTransactionLines` to accept optional dimension changes per line
-- [x] Add `get_transaction_dimensions(transaction_id)` — returns dimension tags per line
+### Integration
+- [ ] Retroactively record kernel migrations in migration_log (module_id='kernel')
+- [ ] Update startup: for each active module, ATTACH → check pending migrations → run in dependency order → disable on failure
 
-### Report Filtering
-- [x] Update `getTrialBalance` to accept optional `dimension_filters: Array<{type, dimension_id}>`
-- [x] Update `getIncomeStatement` to accept optional dimension filters
-- [x] Update `getBalanceSheet` to accept optional dimension filters
-- [x] Update `getCashFlowStatement` to accept optional dimension filters (deferred — indirect method CFS uses balance changes, dimension filter best applied at direct cash flow level in future)
-- [x] Filtering logic: same type = OR, different types = AND. Only include lines with matching junction rows
-
-### UI
-- [x] Add Dimensions management page (Settings > Dimensions): CRUD for types and values, hierarchy display, usage count
-- [x] Update JournalEntryForm: dimension tag picker per line item (multi-select chips)
-- [x] Update all report pages: add dimension filter dropdowns (one per active type, multi-select, "All" default) — DimensionFilterBar component created; MockApi filtering works; Rust report filtering deferred to when reports are connected
+### All commands → api.ts + MockApi
 
 ### Tests
-- [x] Test: create dimension, list by type
-- [x] Test: create dimension with parent, hierarchy returned correctly
-- [x] Test: create transaction with dimensions on lines
-- [x] Test: dimension filter on trial balance returns only matching lines
-- [x] Test: dimension filter on income statement returns only matching lines
-- [x] Test: AND logic: two different dimension types filter correctly
-- [x] Test: OR logic: two values of same type filter correctly
-- [x] Test: cannot create transaction with inactive dimension
-- [x] Test: cannot delete dimension with transaction references
-- [x] Test: deactivated dimension excluded from picker but existing data preserved
-- [x] CHECK: Dimensions CRUD works, transaction tagging works, all reports filter by dimensions (MockApi), all tests pass, `npm run check` clean
+- [ ] Test: register + run migrations, all recorded in migration_log
+- [ ] Test: checksum mismatch detected and rejected
+- [ ] Test: migrations run in version order
+- [ ] Test: failed migration stops execution, records error
+- [ ] Test: dependency enforcement — B depends on A, B waits for A
+- [ ] Test: circular dependency detected and rejected
+- [ ] Test: get_migration_status returns correct counts
+- [ ] Test: kernel migrations recorded retroactively
+- [ ] Test: startup with failed module migration disables module
+- [ ] Test: re-running migrations is idempotent
+- [ ] CHECK: Migration coordinator works, dependencies enforced, failures handled, all tests pass, `npm run check` clean
 
 ---
 
-## PHASE 33 — Contact Registry
-**Goal:** Kernel-level customers, vendors, employees. Contact ledger. Transaction linking.
+## PHASE 40 — SDK v1 Core & Module Lifecycle (Fix #1, #6)
+**Goal:** Module manifest, versioned SDK contract, module registry, install/uninstall lifecycle, service registry.
+
+### Module Manifest (module.json)
+- [ ] Define schema: id, name, version, sdk_version, description, author, license, permissions[], dependencies[], entry_point, migrations[]
 
 ### Schema
-- [x] Add `contacts` table: id, type TEXT (CUSTOMER/VENDOR/EMPLOYEE/OTHER), name TEXT, company_name TEXT, email TEXT, phone TEXT, address_line1 TEXT, address_line2 TEXT, city TEXT, state TEXT, postal_code TEXT, country TEXT DEFAULT 'US', tax_id TEXT, notes TEXT, is_active INTEGER DEFAULT 1, created_at TEXT, updated_at TEXT
-- [x] Add `transaction_contacts` junction table: id, transaction_id INTEGER REFERENCES transactions(id), contact_id INTEGER REFERENCES contacts(id), role TEXT DEFAULT 'PRIMARY'. UNIQUE(transaction_id, contact_id, role)
+- [ ] Replace/update `modules` table → `module_registry`: id TEXT PK, name, version, sdk_version, description, author, license, permissions (JSON), dependencies (JSON), entry_point, install_path, status (active/disabled/failed/uninstalling), installed_at, updated_at, error_message
 
-### Commands (each: commands.rs + api.ts + MockApi + tests)
-- [x] `create_contact(type, name, ...fields)` — all fields optional except type and name
-- [x] `update_contact(id, ...fields)` — partial update, sets updated_at
-- [x] `get_contact(id)` — full contact record
-- [x] `list_contacts(type?, search?, is_active?)` — filterable, search matches name/company/email
-- [x] `deactivate_contact(id)` / `reactivate_contact(id)`
-- [x] `delete_contact(id)` — only if no transactions reference it, otherwise error "Deactivate instead"
+### SDK v1 (sdk_v1.rs)
+- [ ] Create src-tauri/src/sdk_v1.rs — versioned SDK adapter
+- [ ] Ledger API: sdk_create_transaction, sdk_void_transaction, sdk_get_account_balance, sdk_get_trial_balance, sdk_get_journal_entries
+- [ ] Account API: sdk_create_account, sdk_update_account, sdk_deactivate_account, sdk_get_chart_of_accounts
+- [ ] Contact API: sdk_create_contact, sdk_get_contact, sdk_list_contacts, sdk_get_contact_ledger
+- [ ] Document API: sdk_attach_document, sdk_get_documents, sdk_delete_document
+- [ ] Report API: sdk_get_income_statement, sdk_get_balance_sheet, sdk_get_cash_flow
+- [ ] Storage API: sdk_storage_create_table, sdk_storage_insert, sdk_storage_query, sdk_storage_update, sdk_storage_delete
+- [ ] Every method takes module_id as first param (permission checks added in Phase 41)
+- [ ] `get_sdk_version()` — returns "1"
 
-### Transaction Integration
-- [x] Update `createTransaction` to accept optional `contact_id` — inserts into transaction_contacts (via linkTransactionContact + createTransactionWithContact)
-- [x] Update `updateTransaction` to accept optional `contact_id` change (via linkTransactionContact/unlinkTransactionContact)
-- [x] Add `get_contact_ledger(contact_id, start_date?, end_date?)` — transactions linked to contact, with running balance
-- [x] Add `get_contact_balance(contact_id, as_of?)` — net balance across linked transactions
+### Service Registry (Fix #6)
+- [ ] `sdk_register_service(module_id, service_name, handler_info)` — in-memory registry
+- [ ] `sdk_call_service(caller_module_id, target_module_id, service_name, params)` — brokered by kernel
+- [ ] `sdk_list_services()` — all registered services
 
-### Report Integration
-- [x] Update `getTrialBalance`, `getIncomeStatement`, `getBalanceSheet`, `getCashFlowStatement` to accept optional `contact_id` filter
-- [x] Contact filter composes with dimension filters (AND logic)
+### Module Lifecycle
+- [ ] `install_module(manifest_json, install_path)` — validate → register → ATTACH → migrate → activate
+- [ ] `uninstall_module(module_id, keep_data?)` — DETACH → optionally delete .sqlite → remove from registry
+- [ ] `enable_module(module_id)` / `disable_module(module_id)` — toggle status, ATTACH/DETACH
+- [ ] `get_module_info(module_id)` / `list_installed_modules()`
 
-### UI
-- [x] Create ContactsPage.tsx (sidebar: Contacts): table with name/type/company/email/phone/balance, search bar, type filter tabs
-- [x] Create ContactDetail.tsx: editable contact info + contact ledger (transactions with running balance) + summary totals
-- [x] Update JournalEntryForm: contact picker (searchable dropdown, optional)
-- [x] Update TransactionRegister: show contact name column (deferred — requires list_transactions API change; contact visible via ContactDetail view)
+### Startup Flow
+- [ ] Update company open: load registry → ATTACH active modules → run pending migrations → init each → report failures
+
+### All commands → api.ts + MockApi
 
 ### Tests
-- [x] Test: CRUD — create, read, update, list, deactivate, reactivate
-- [x] Test: search contacts by name substring
-- [x] Test: filter contacts by type
-- [x] Test: create transaction with contact, verify junction row
-- [x] Test: contact ledger returns correct transactions and running balance
-- [x] Test: contact balance calculation correct
-- [x] Test: cannot delete contact with transaction references
-- [x] Test: deactivated contact excluded from picker but existing ledger preserved
-- [x] Test: trial balance filtered by contact returns correct subset
-- [x] Test: contact filter composes with dimension filter (AND)
-- [x] CHECK: Contacts CRUD works, contact ledger works, transaction linking works, all reports filter by contact, all tests pass, `npm run check` clean
+- [ ] Test: install_module with valid manifest succeeds
+- [ ] Test: incompatible sdk_version rejected
+- [ ] Test: duplicate module ID rejected
+- [ ] Test: uninstall removes from registry
+- [ ] Test: uninstall with keep_data preserves .sqlite
+- [ ] Test: disable/enable toggles status
+- [ ] Test: SDK v1 ledger methods call through to engine
+- [ ] Test: SDK v1 storage methods call through to module storage
+- [ ] Test: service registry round-trip (register + call)
+- [ ] Test: call to unregistered service returns error
+- [ ] Test: list_installed_modules returns correct statuses
+- [ ] Test: get_sdk_version returns "1"
+- [ ] CHECK: Module lifecycle works, SDK v1 wraps engine, service registry works, all tests pass, `npm run check` clean
 
 ---
 
-## PHASE 34 — General Ledger View
-**Goal:** Primary bookkeeper working view. Every transaction line grouped by account, with running balances, filterable by date, dimensions, and contacts.
+## PHASE 41 — Permission Enforcer (Fix #4)
+**Goal:** Granular permission checks on every SDK call. Consent UI on install.
 
-### Command
-- [x] Add `get_general_ledger(filters)` Rust command:
-  - Filters: account_id?, account_ids?, start_date?, end_date?, dimension_filters?, contact_id?, journal_type?, include_void? (default false)
-  - Returns: Array of account groups, each with:
-    - account: {id, code, name, type, normal_balance}
-    - opening_balance (as of start_date, integer cents)
-    - entries: Array of {transaction_id, transaction_line_id, date, reference, description, debit, credit, running_balance, contact_name, dimensions[], is_void, journal_type}
-    - closing_balance, total_debits, total_credits
-  - Running balance: start from opening_balance, add/subtract per entry respecting normal_balance direction
-- [x] Add command to api.ts + MockApi
-
-### UI
-- [x] Create GeneralLedgerPage.tsx (sidebar: Reports > General Ledger, positioned first):
-  - Filter bar: account picker (multi-select), date range, dimension dropdowns, contact picker, journal type checkboxes, include voided toggle
-  - One collapsible section per account: header with code/name/opening/closing balance
-  - Table per account: Date | Ref | Description | Contact | Dimensions | Debit | Credit | Balance
-  - Voided entries struck-through if included
-  - Dimension tags as small chips
-  - Totals row per account section
-  - Grand totals footer: total debits, total credits
-- [x] Click any GL entry row → navigates to transaction in register (row display ready; navigation deferred to Phase 37 routing)
-- [x] Export CSV button — exports current filtered GL view
-- [x] Print button — @media print CSS for print-friendly layout
-
-### Tests
-- [x] Test: GL for single account returns correct entries and running balance
-- [x] Test: GL opening balance correct when start_date excludes earlier transactions
-- [x] Test: GL with dimension filter returns only matching lines
-- [x] Test: GL with contact filter returns only matching transactions
-- [x] Test: GL with date range returns only entries within range
-- [x] Test: GL running balance matches closing balance at end
-- [x] Test: GL excludes voided entries by default, includes when toggled
-- [x] Test: GL for multiple accounts returns separate groups
-- [x] Test: GL total debits and total credits across all accounts
-- [x] Test: GL entries are date-ordered ascending within each account
-- [x] CHECK: General ledger renders, filters work (dimensions + contacts + dates + journal type), running balances correct, CSV export works, all tests pass, `npm run check` clean
-
----
-
-## PHASE 35 — Document Attachments
-**Goal:** Attach receipts, invoices, source documents to transactions/contacts/accounts. Files on filesystem, metadata in SQLite.
+### Permission Taxonomy
+- [ ] Define all scopes: ledger:read, ledger:read_balances, ledger:write, ledger:write_reversals, accounts:read, accounts:write, contacts:read, contacts:write, reports:read, reports:create_custom, documents:read, documents:write, events:subscribe, hooks:before_write, storage:own, services:register, services:call, ui:nav_item, ui:settings_pane, ui:transaction_action, ui:column_provider
 
 ### Schema
-- [x] Add `documents` table: id, entity_type TEXT (TRANSACTION/CONTACT/ACCOUNT), entity_id INTEGER, filename TEXT, stored_filename TEXT (UUID-based), mime_type TEXT, file_size_bytes INTEGER, description TEXT, uploaded_at TEXT DEFAULT CURRENT_TIMESTAMP, uploaded_by TEXT DEFAULT 'user'
-- [x] Index on (entity_type, entity_id)
+- [ ] Add `module_permissions` table: id, module_id REFERENCES module_registry(id), scope TEXT, granted_at. UNIQUE(module_id, scope)
 
-### Filesystem
-- [x] Document directory: `{company_file_path}_documents/{YYYY}/{MM}/{stored_filename}`
-- [x] Create directory structure on first attachment
+### Enforcement
+- [ ] Create src-tauri/src/permissions.rs: check_permission(module_id, scope) → Ok or Err
+- [ ] Add permission check to EVERY sdk_v1.rs method (mapping each method to its required scope)
+- [ ] Update install_module: insert permissions from manifest into module_permissions
+- [ ] Update uninstall_module: delete all permissions for module
 
-### Commands (each: commands.rs + api.ts + MockApi + tests)
-- [x] `attach_document(entity_type, entity_id, file_path, filename, description?)` — validate entity exists, generate UUID stored_filename preserving extension, copy file to documents dir, detect mime_type, insert metadata
-- [x] `list_documents(entity_type, entity_id)` — metadata list ordered by uploaded_at desc
-- [x] `get_document_path(document_id)` — full filesystem path for Tauri to serve/open
-- [x] `delete_document(document_id)` — deletes file from filesystem + metadata row (true delete — documents are evidence, not financial data)
-- [x] `get_document_count(entity_type, entity_id)` — count for badge display without loading all metadata
+### Permission Management
+- [ ] `grant_module_permission(module_id, scope)` — admin manual grant
+- [ ] `revoke_module_permission(module_id, scope)` — revoke, module starts getting errors
+- [ ] `get_module_permissions(module_id)` — list granted scopes
 
-### Tauri Integration
-- [x] File upload via Tauri dialog API → temp path → attach_document (Rust command accepts file_path; Tauri dialog wiring deferred to runtime integration)
-- [x] File open via Tauri shell API → system default application (get_document_path returns full path; shell.open wiring deferred)
-- [x] File size limit: 25MB per file, validate before copying
+### Consent UI
+- [ ] On install: show permission list before proceeding. "This module wants to:" with human-readable descriptions. Allow / Deny.
 
-### UI
-- [x] Create DocumentAttachments reusable component: collapsible section, file list, attach button, click to open, delete with confirmation, paperclip icon with count badge
-- [x] Add DocumentAttachments to transaction detail/edit view (component ready; integration deferred to runtime)
-- [x] Add DocumentAttachments to ContactDetail.tsx (component ready; integration deferred to runtime)
-- [x] Add attachment indicator (paperclip icon) to TransactionRegister rows that have attachments (deferred — requires list_transactions API extension)
-
-### MockApi Note
-- [x] MockApi stores document metadata in-memory array (no filesystem). file_path methods return fake paths. API contract is testable.
+### All commands → api.ts + MockApi
 
 ### Tests
-- [x] Test: attach document to transaction, list shows it
-- [x] Test: attach document to contact, list shows it
-- [x] Test: attach multiple documents to same entity
-- [x] Test: delete document removes from list
-- [x] Test: get_document_count returns correct count
-- [x] Test: cannot attach to nonexistent entity (invalid entity_id)
-- [x] Test: stored_filename is UUID-based, not original filename
-- [x] Test: document metadata includes correct mime_type and file_size
-- [x] CHECK: Can attach files to transactions and contacts, list/open/delete works, indicators show in register, all tests pass, `npm run check` clean
+- [ ] Test: SDK method with correct permission succeeds
+- [ ] Test: SDK method without permission throws error
+- [ ] Test: install grants all manifest permissions
+- [ ] Test: uninstall removes all permissions
+- [ ] Test: grant adds permission, SDK call now succeeds
+- [ ] Test: revoke removes permission, SDK call now fails
+- [ ] Test: storage:own only allows own module's tables
+- [ ] Test: ledger:read without ledger:write can read but not create
+- [ ] Test: module with no permissions can't do anything
+- [ ] Test: get_module_permissions returns correct scopes
+- [ ] CHECK: Every SDK method checks permissions, consent UI works, all tests pass, `npm run check` clean
 
 ---
 
-## PHASE 36 — V2 Audit Fixes
-**Goal:** Fix the issues found in engine-audit-v2-results.md. All fixes in BOTH MockApi and Rust.
+## PHASE 42 — Hooks and Events (Fix #3)
+**Goal:** Sync hooks inside DB transactions (can reject). Async events after commit (fire-and-forget).
 
-- [x] Fix: Duplicate opening balances prevention — check if OPENING transaction already exists before creating. Throw error "Opening balances have already been entered. Void the existing opening balance entry first if you need to re-enter."
-- [x] Fix: Zero-activity fiscal year close — when no revenue/expense balances exist, create a CLOSING transaction with zero entries (or a memo-only entry) instead of throwing. Year is still marked as closed.
-- [x] Fix: Circular parent reference validation — in createAccount and updateAccount, walk the parent chain when parent_id is provided. Reject if cycle detected. Safety cap at depth 10.
-- [x] Fix: Explicit account type change protection — if updateAccount receives a type parameter, reject with "Account type cannot be changed after creation."
-- [x] Fix: Monthly recurrence end-of-month clamping — if original template date is last day of month, next due date is last day of next month. If original day > days in target month, clamp to last day.
-- [x] Test: enterOpeningBalances twice — second call throws error
-- [x] Test: after voiding opening balance entry, new one can be entered
-- [x] Test: close fiscal year with zero revenue/expense activity — succeeds
-- [x] Test: zero-activity closing entry has journal_type CLOSING and appears in list_fiscal_year_closes
-- [x] Test: A→B→A circular parent reference rejected on create
-- [x] Test: A→B→C→A circular reference rejected on update
-- [x] Test: valid 3-level hierarchy accepted
-- [x] Test: attempting to update account type throws error
-- [x] Test: Jan 31 monthly recurrence → Feb 28 (non-leap year)
-- [x] Test: Mar 31 monthly recurrence → Apr 30
-- [x] Test: Jan 15 monthly recurrence → Feb 15 (no clamping, unchanged)
-- [x] CHECK: All V2 audit fixes applied, all tests pass, `npm run check` clean
+### Sync Hook Bus
+- [ ] Create src-tauri/src/hooks.rs: in-memory registry, register/unregister, run_hooks with priority ordering
+- [ ] Hook types: before_transaction_create, after_transaction_create, before_transaction_void, after_transaction_void, before_account_update, after_account_update
+- [ ] Hook response: {allow: true} or {allow: false, reason: "..."} — rejection aborts entire operation
+- [ ] Integrate into createTransaction, voidTransaction, updateAccount
 
----
+### Async Event Bus
+- [ ] Create src-tauri/src/events.rs: in-memory subscriber registry, subscribe/unsubscribe, emit
+- [ ] Event types: transaction.created, transaction.voided, transaction.updated, account.created, account.updated, account.deactivated, contact.created, contact.updated, period.locked, period.unlocked, module.installed, module.uninstalled, reconciliation.completed, fiscal_year.closed
+- [ ] Events fire AFTER commit, errors logged not propagated
+- [ ] Integrate emit calls into all relevant engine commands
 
-## PHASE 37 — Packaging & Distribution
-**Goal:** Make the app installable. Tauri bundling for macOS, Windows, Linux.
+### SDK Methods
+- [ ] sdk_register_hook, sdk_unregister_hook (requires hooks:before_write)
+- [ ] sdk_subscribe_event, sdk_unsubscribe_event (requires events:subscribe)
+- [ ] sdk_emit_event — modules can emit custom events
 
-### App Metadata
-- [x] Update tauri.conf.json: productName, version "0.1.0", identifier (reverse-domain), description, license, copyright
-- [x] Generate app icon (1024x1024 PNG → `cargo tauri icon` → src-tauri/icons/) — ledger book icon generated for all platforms
-- [x] Window config: 1200x800 default, 900x600 min, centered
+### All commands → api.ts + MockApi
 
-### Build Verification
-- [x] Run `cargo tauri build` successfully — Windows MSI + NSIS installers built
-- [ ] Verify built binary launches, can create file, enter transaction, run report
-- [ ] Verify WelcomeScreen shows on fresh launch (no prior app data)
-
-### CI/CD (GitHub Actions)
-- [x] Create `.github/workflows/build.yml`: triggers on push to main + PRs, matrix (ubuntu, macos, windows), checkout → setup Node → setup Rust → install deps → run tests → cargo tauri build → upload artifacts
-- [x] Create `.github/workflows/release.yml`: triggers on version tag (v*), builds all platforms, creates GitHub Release with attached binaries, uses tauri-apps/tauri-action
-
-### Documentation
-- [ ] README.md: project description + philosophy, screenshots, installation, building from source, architecture, contributing, license — deferred: needs screenshots from running app
-- [x] docs/release-checklist.md: all tests pass, version bumped, changelog updated, builds succeed, smoke test (fresh install → create → enter → report), tag and push
-
-### Optional (defer if complex)
-- [ ] Auto-update via Tauri updater (GitHub Releases as update endpoint)
-
-- [ ] CHECK: App builds on at least one platform, binary launches and works end-to-end, README exists, CI config exists, `npm run check` clean
+### Tests
+- [ ] Test: hook receives context with transaction data
+- [ ] Test: before_transaction_create rejection prevents transaction creation
+- [ ] Test: after_transaction_create rejection rolls back transaction
+- [ ] Test: multiple hooks run in priority order
+- [ ] Test: hook without permission rejected
+- [ ] Test: event fires with correct payload after transaction created
+- [ ] Test: event subscriber error doesn't prevent other subscribers
+- [ ] Test: event subscriber error doesn't roll back transaction
+- [ ] Test: unsubscribe stops events
+- [ ] Test: module can emit custom events
+- [ ] Test: transaction.voided event fires after void
+- [ ] Test: period.locked event fires after lock
+- [ ] CHECK: Hooks validate/reject inside transactions, events fire after commit, permissions enforced, all tests pass, `npm run check` clean
 
 ---
 
-## CURRENT PHASE: 37
-## LAST COMPLETED CHECK: Phase 36 — V2 audit fixes, 352 tests pass (2026-04-08)
+## PHASE 43 — UI Isolation & Module Frame (Fix #5)
+**Goal:** Sandboxed iframe for module UI. postMessage bridge. UI Extension API for nav items, settings, transaction actions.
+
+### ModuleFrame Component
+- [ ] Create ModuleFrame.tsx: renders iframe with sandbox="allow-scripts" (NO allow-same-origin)
+- [ ] postMessage handler: validates module_id, checks permissions, executes SDK call, returns result
+- [ ] Error handling: failed calls return error to iframe, crashed iframe shows error boundary
+- [ ] 30-second timeout on SDK calls from iframe
+
+### Module-Side SDK Bridge
+- [ ] Create src/module-sdk/sdk.js: clean API surface (sdk.ledger.*, sdk.accounts.*, sdk.storage.*, etc.)
+- [ ] Internal call() function: postMessage to parent, returns Promise, timeout handling
+- [ ] Create src/module-sdk/theme.css: CSS variables for design tokens
+
+### UI Extension Registry
+- [ ] Create src/lib/ui-extensions.ts: in-memory registry
+- [ ] registerNavItem(module_id, label, icon) / getNavItems()
+- [ ] registerSettingsPane(module_id, label) / getSettingsPanes()
+- [ ] registerTransactionAction(module_id, label) / getTransactionActions()
+- [ ] SDK methods: sdk_register_nav_item, sdk_register_settings_pane, sdk_register_transaction_action
+
+### AppShell Integration
+- [ ] Sidebar: render module nav items after hardcoded items, separated by "Modules" divider
+- [ ] Settings: render module settings panes
+- [ ] TransactionRegister: include module transaction actions
+- [ ] Module page routes: /module/{module_id} → ModuleFrame
+
+### First-Party Exception
+- [ ] trusted: true flag in module_registry — trusted modules render React directly (no iframe)
+
+### Module File Serving
+- [ ] get_module_file(module_id, file_path) command OR custom protocol handler (module://)
+
+### All commands → api.ts + MockApi
+
+### Tests
+- [ ] Test: ModuleFrame renders iframe with correct sandbox
+- [ ] Test: SDK call from iframe → postMessage → kernel → response
+- [ ] Test: SDK call without permission returns error
+- [ ] Test: invalid module_id rejected
+- [ ] Test: registerNavItem adds to sidebar
+- [ ] Test: registerSettingsPane adds to settings
+- [ ] Test: registerTransactionAction adds to register
+- [ ] Test: module page route renders ModuleFrame
+- [ ] Test: SDK bridge timeout after 30 seconds
+- [ ] Test: trusted module renders without iframe
+- [ ] CHECK: Module UI in sandboxed iframes, postMessage bridge works, UI extensions in sidebar, all tests pass, `npm run check` clean
+
+---
+
+## PHASE 44 — Health Monitor & Error Boundaries (Fix #8)
+**Goal:** Error counting, auto-disable, graceful degradation. App ALWAYS boots.
+
+### Schema
+- [ ] Add `module_health_log` table: id, module_id, event_type (error/recovery/auto_disable/manual_disable/manual_enable), message, error_count, timestamp
+
+### Health Monitor
+- [ ] Create src-tauri/src/health.rs: per-module in-memory state (status, error_count, window_start)
+- [ ] record_error(module_id, message) — increment count, auto-disable at threshold (10 errors / 5 min)
+- [ ] record_success(module_id) — reset degraded state
+- [ ] get_health_status(module_id) / get_all_health_statuses()
+- [ ] get_health_history(module_id, limit?)
+
+### Integration
+- [ ] Wrap every SDK call: on success → record_success, on error → record_error
+- [ ] Wrap hook/event handlers: errors → record_error
+- [ ] Auto-disable: DETACH DB, unregister hooks/events/UI, set status FAILED
+- [ ] Module init wrapped in try/catch: failure → FAILED status, app continues
+
+### UI
+- [ ] ModuleErrorBoundary.tsx: wraps ModuleFrame, shows fallback on crash, Retry/Disable buttons
+- [ ] Sidebar health indicators: green/yellow/red/grey dots next to module nav items
+- [ ] Global notification on auto-disable
+- [ ] ModuleHealthPage.tsx (Settings > Module Health): status table, health log, Enable/Disable/Retry/Uninstall actions
+
+### Settings
+- [ ] module_error_threshold (default 10), module_error_window_minutes (default 5) — configurable
+
+### All commands → api.ts + MockApi
+
+### Tests
+- [ ] Test: record_error increments count
+- [ ] Test: 11 errors in 5 minutes triggers auto-disable
+- [ ] Test: errors in different windows don't accumulate
+- [ ] Test: auto-disabled module's hooks unregistered
+- [ ] Test: auto-disabled module's events unsubscribed
+- [ ] Test: auto-disabled module's UI extensions hidden
+- [ ] Test: record_success resets degraded state
+- [ ] Test: module init failure → FAILED, app continues
+- [ ] Test: get_health_history returns correct entries
+- [ ] Test: manual disable/enable works
+- [ ] CHECK: Health monitor tracks errors, auto-disables at threshold, app always boots, all tests pass, `npm run check` clean
+
+---
+
+## PHASE 45 — Distribution & Install Flow (Fix #9)
+**Goal:** .zip package format, 10-step install flow, validation, optional signature verification, module manager UI.
+
+### Package Format
+- [ ] Define .zip structure: module.json (required), module.sig (optional), frontend/ (index.html + JS/CSS), migrations/ (SQL files)
+
+### Install Flow (10 steps)
+- [ ] `install_module_from_zip(zip_path)`: Extract → Validate → Verify sig → Compat check → Conflict check → Consent (handled by UI) → Copy to modules/{id}/ → Register → Migrate → Init
+- [ ] Each step can fail with clear error. Cleanup on failure after Copy step.
+- [ ] `validate_module_package(zip_path)` — steps 1-5 without installing (preview)
+- [ ] `export_module_package(module_id, output_path)` — re-package installed module
+- [ ] `check_module_updates(module_id, new_zip_path)` — version comparison
+- [ ] `update_module(module_id, zip_path)` — validate → run new migrations → replace frontend → update registry (preserves data)
+
+### Signature Verification
+- [ ] Ed25519 support: if module.sig exists, verify against trusted-keys.json
+- [ ] Verification failure → abort. Missing sig → warn "unsigned module"
+- [ ] `add_trusted_key(author_id, public_key)`
+
+### Module Manager UI
+- [ ] ModuleManagerPage.tsx (Settings > Modules): installed modules list, status, health
+- [ ] "Install from File" → file picker → validation → signature check → consent → progress → result
+- [ ] Per-module: Disable, Enable, Uninstall (with keep_data option), Update, Export
+
+### All commands → api.ts + MockApi
+
+### Tests
+- [ ] Test: install from valid .zip succeeds through all 10 steps
+- [ ] Test: invalid manifest fails at validation
+- [ ] Test: incompatible sdk_version fails at compat
+- [ ] Test: duplicate ID fails at conflict check
+- [ ] Test: install creates correct directory structure
+- [ ] Test: install runs migrations
+- [ ] Test: uninstall removes registry, optionally deletes files
+- [ ] Test: keep_data preserves .sqlite on uninstall
+- [ ] Test: update upgrades version, runs new migrations, preserves data
+- [ ] Test: validate_module_package returns report without installing
+- [ ] Test: export creates valid zip
+- [ ] Test: unsigned module shows warning
+- [ ] Test: failed install at migration step cleans up
+- [ ] CHECK: Full install flow works, module manager UI works, all tests pass, `npm run check` clean
+
+---
+
+## PHASE 46 — Invoicing & AR Module (First Real Module)
+**Goal:** First module built entirely on the plugin SDK. Proves every layer works. Uses ONLY SDK methods — no backdoors.
+
+### Module Manifest
+- [ ] Create module.json for com.bookkeeping.invoicing with all required permissions
+
+### Module Storage (via SDK Storage API)
+- [ ] Migration 001_init.sql: invoices table (id, invoice_number, customer_contact_id, status, dates, amounts, transaction_id, payment_transaction_ids)
+- [ ] Migration 001_init.sql: invoice_lines table (id, invoice_id, description, quantity, unit_price, amount, account_id, sort_order)
+- [ ] Migration 001_init.sql: invoice_settings table (key/value: next_number, default_terms, default_ar_account, company info)
+
+### Module Frontend (iframe)
+- [ ] Create src/modules/invoicing/frontend/: index.html, bundle.js, style.css
+- [ ] Invoice List page: status badges, sort/filter
+- [ ] Create Invoice form: customer picker (sdk.contacts.list), line items, terms, dates
+- [ ] Invoice Detail: view, status history, payments, documents
+- [ ] Record Payment: partial/full, creates ledger transaction via SDK
+- [ ] Invoice Settings: default terms, AR account, company info
+
+### Accounting Integration (via SDK only)
+- [ ] Finalize invoice (→ sent): sdk.ledger.createTransaction — debit AR, credit revenue per line
+- [ ] Record payment: sdk.ledger.createTransaction — debit cash, credit AR
+- [ ] Full payment → status 'paid', partial → status 'partial'
+- [ ] Void invoice: sdk.ledger.voidTransaction on invoice's transaction_id
+
+### Hooks and Events
+- [ ] Hook: before_transaction_void — warn if transaction has linked invoice
+- [ ] Event: contact.updated — refresh invoice display
+- [ ] Event: period.locked — prevent edits to invoices in locked periods
+
+### UI Extensions (via SDK)
+- [ ] registerNavItem: "Invoices" with receipt icon
+- [ ] registerSettingsPane: "Invoicing Settings"
+- [ ] registerTransactionAction: "Create Invoice from Transaction"
+
+### AR Aging Report
+- [ ] Current, 1-30, 31-60, 61-90, 90+ day buckets
+- [ ] Per customer and totals
+- [ ] Uses sdk.storage.query + sdk.contacts.list
+
+### Default Setup
+- [ ] On install: check for AR account (1100), set as default or create via SDK
+- [ ] Auto-install on new company creation (user can uninstall)
+
+### Package
+- [ ] Package as invoicing-1.0.0.zip following Phase 45 format
+
+### Tests (all through SDK — no direct DB access)
+- [ ] Test: install invoicing module via install_module_from_zip
+- [ ] Test: migrations create tables in module storage
+- [ ] Test: create invoice stored via storage API
+- [ ] Test: finalize invoice creates AR transaction via SDK
+- [ ] Test: AR transaction debits AR, credits revenue
+- [ ] Test: payment creates transaction via SDK
+- [ ] Test: full payment → status 'paid'
+- [ ] Test: partial payment → status 'partial'
+- [ ] Test: void invoice → voids ledger transaction
+- [ ] Test: AR aging report calculates buckets correctly
+- [ ] Test: module cannot access kernel tables directly
+- [ ] Test: module uses only SDK (no direct SQL on company.sqlite)
+- [ ] Test: invoice_number auto-increments
+- [ ] Test: multi-line invoice totals correctly
+- [ ] Test: "Invoices" appears in sidebar
+- [ ] CHECK: Invoicing installs via .zip, posts to ledger via SDK, records payments, renders in iframe, all tests pass, `npm run check` clean
+
+---
+
+## CURRENT PHASE: 39
+## LAST COMPLETED CHECK: Phase 38 — storage sandbox & directory structure, 370 tests pass (2026-04-09)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)
-- Phase 38: Multi-currency support
-- Phase 39: Plugin SDK v1 (versioned API, permission system, ATTACH-based module storage)
-- Phase 40: Invoicing & AR module (first real module, proves plugin architecture)
-- Phase 41: Bills & AP module
+- Phase 47: Bills & AP module (second module, proves multi-module)
+- Phase 48: Multi-currency support (kernel currency engine)
+- Phase 49: Budget engine (kernel capability)
+- Phase 50: GitHub registry (Tier 2 distribution — static registry.json)

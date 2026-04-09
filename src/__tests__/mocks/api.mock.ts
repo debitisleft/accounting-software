@@ -118,6 +118,13 @@ export class MockApi {
   recentFiles: RecentFile[] = []
   fileOpen = false
   currentPath: string | null = null
+  companyDir: string | null = null
+  // Phase 38: module storage simulation. Each module has its own table store,
+  // emulating SQLite ATTACH isolation. Outer key is module_id; inner is table name.
+  moduleStores: Record<string, Record<string, Record<string, unknown>[]>> = {}
+  moduleMigrations: Record<string, string[]> = {}
+  attachedModules: string[] = []
+  private moduleRowSeq = 1
   private nextId = 1
   private auditSeq = 0
 
@@ -129,10 +136,21 @@ export class MockApi {
     return `mock-${this.nextId++}`
   }
 
+  /// Phase 38: derive a company directory path from a user-supplied path.
+  /// If the path looks like a legacy `.sqlite` file, strip the extension to get
+  /// the directory name (auto-migration). Otherwise the path IS the directory.
+  private deriveCompanyDir(path: string): string {
+    if (path.endsWith('.sqlite')) {
+      return path.slice(0, -'.sqlite'.length)
+    }
+    return path
+  }
+
   createNewFile(path: string, companyName: string): FileInfo {
     this.resetData()
     this.fileOpen = true
     this.currentPath = path
+    this.companyDir = this.deriveCompanyDir(path)
     this.settings.company_name = companyName
     this.seedAccounts(defaultSeedAccounts)
     this.addToRecent(path, companyName)
@@ -144,13 +162,17 @@ export class MockApi {
     if (path.includes('invalid')) throw new Error("Invalid book file: missing 'accounts' table")
     this.fileOpen = true
     this.currentPath = path
+    this.companyDir = this.deriveCompanyDir(path)
     this.addToRecent(path, this.settings.company_name)
     return { path, company_name: this.settings.company_name }
   }
 
   closeFile(): void {
+    // Detach all modules — Phase 38: closing a company file detaches modules
+    this.attachedModules = []
     this.fileOpen = false
     this.currentPath = null
+    this.companyDir = null
   }
 
   getRecentFiles(): RecentFile[] {
@@ -188,6 +210,9 @@ export class MockApi {
     this.recurringTemplates = []
     this.dimensions = []
     this.lineDimensions = []
+    this.moduleStores = {}
+    this.moduleMigrations = {}
+    this.attachedModules = []
     this.settings = {
       company_name: 'My Company',
       fiscal_year_start_month: '1',
@@ -2630,6 +2655,158 @@ export class MockApi {
   getDocumentCount(entityType: string, entityId: string): number {
     this.guardFileOpen()
     return this.documents.filter((d) => d.entity_type === entityType && d.entity_id === entityId).length
+  }
+
+  // ── Phase 38: Module Storage Sandbox ────────────────────
+
+  private validateIdent(name: string, label: string): void {
+    if (!name) throw new Error(`${label} cannot be empty`)
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      throw new Error(`Invalid ${label} '${name}': only alphanumeric and underscore allowed`)
+    }
+  }
+
+  private requireModuleAttached(moduleId: string): void {
+    this.guardFileOpen()
+    this.validateIdent(moduleId, 'module_id')
+    if (!this.attachedModules.includes(moduleId)) {
+      throw new Error(`Module not attached: ${moduleId}`)
+    }
+  }
+
+  attachModuleDb(moduleId: string): void {
+    this.guardFileOpen()
+    this.validateIdent(moduleId, 'module_id')
+    if (this.attachedModules.includes(moduleId)) return
+    this.attachedModules.push(moduleId)
+    if (!this.moduleStores[moduleId]) {
+      this.moduleStores[moduleId] = {}
+    }
+    if (!this.moduleMigrations[moduleId]) {
+      this.moduleMigrations[moduleId] = []
+    }
+  }
+
+  detachModuleDb(moduleId: string): void {
+    this.guardFileOpen()
+    this.validateIdent(moduleId, 'module_id')
+    this.attachedModules = this.attachedModules.filter((m) => m !== moduleId)
+  }
+
+  listAttachedModules(): string[] {
+    return this.attachedModules.slice()
+  }
+
+  moduleCreateTable(moduleId: string, tableName: string, columnsSql: string): void {
+    this.requireModuleAttached(moduleId)
+    this.validateIdent(tableName, 'table_name')
+    if (tableName.startsWith('_')) {
+      throw new Error('Table names cannot start with underscore (reserved)')
+    }
+    if (columnsSql.includes(';')) {
+      throw new Error("columns_sql cannot contain ';'")
+    }
+    const store = this.moduleStores[moduleId]
+    if (!store[tableName]) {
+      store[tableName] = []
+    }
+  }
+
+  moduleInsert(moduleId: string, tableName: string, row: Record<string, unknown>): number {
+    this.requireModuleAttached(moduleId)
+    this.validateIdent(tableName, 'table_name')
+    const store = this.moduleStores[moduleId]
+    if (!store[tableName]) {
+      throw new Error(`Table not found in module ${moduleId}: ${tableName}`)
+    }
+    for (const k of Object.keys(row)) {
+      this.validateIdent(k, 'column')
+    }
+    const id = this.moduleRowSeq++
+    const rowWithId: Record<string, unknown> = { id, ...row }
+    store[tableName].push(rowWithId)
+    return id
+  }
+
+  moduleQuery(
+    moduleId: string,
+    tableName: string,
+    filters?: { column: string; op: string; value: unknown }[],
+  ): Record<string, unknown>[] {
+    this.requireModuleAttached(moduleId)
+    this.validateIdent(tableName, 'table_name')
+    const store = this.moduleStores[moduleId]
+    if (!store[tableName]) {
+      throw new Error(`Table not found in module ${moduleId}: ${tableName}`)
+    }
+    const allowedOps = new Set(['=', '!=', '<', '>', '<=', '>=', 'LIKE'])
+    const rows = store[tableName]
+    if (!filters || filters.length === 0) return rows.map((r) => ({ ...r }))
+
+    return rows
+      .filter((row) => {
+        for (const f of filters) {
+          this.validateIdent(f.column, 'column')
+          if (!allowedOps.has(f.op)) throw new Error(`Invalid filter op: ${f.op}`)
+          const cell = row[f.column]
+          const v = f.value
+          let pass = false
+          switch (f.op) {
+            case '=': pass = cell === v; break
+            case '!=': pass = cell !== v; break
+            case '<': pass = (cell as number) < (v as number); break
+            case '>': pass = (cell as number) > (v as number); break
+            case '<=': pass = (cell as number) <= (v as number); break
+            case '>=': pass = (cell as number) >= (v as number); break
+            case 'LIKE': {
+              const pat = String(v).replace(/%/g, '.*').replace(/_/g, '.')
+              pass = new RegExp(`^${pat}$`).test(String(cell))
+              break
+            }
+          }
+          if (!pass) return false
+        }
+        return true
+      })
+      .map((r) => ({ ...r }))
+  }
+
+  moduleUpdate(
+    moduleId: string,
+    tableName: string,
+    id: unknown,
+    fields: Record<string, unknown>,
+  ): number {
+    this.requireModuleAttached(moduleId)
+    this.validateIdent(tableName, 'table_name')
+    for (const k of Object.keys(fields)) this.validateIdent(k, 'column')
+    const rows = this.moduleStores[moduleId]?.[tableName]
+    if (!rows) throw new Error(`Table not found in module ${moduleId}: ${tableName}`)
+    let count = 0
+    for (const r of rows) {
+      if (r.id === id) {
+        Object.assign(r, fields)
+        count++
+      }
+    }
+    return count
+  }
+
+  moduleDelete(moduleId: string, tableName: string, id: unknown): number {
+    this.requireModuleAttached(moduleId)
+    this.validateIdent(tableName, 'table_name')
+    const store = this.moduleStores[moduleId]
+    if (!store?.[tableName]) throw new Error(`Table not found in module ${moduleId}: ${tableName}`)
+    const before = store[tableName].length
+    store[tableName] = store[tableName].filter((r) => r.id !== id)
+    return before - store[tableName].length
+  }
+
+  moduleExecuteMigration(moduleId: string, version: string, _sql: string): void {
+    this.requireModuleAttached(moduleId)
+    const applied = this.moduleMigrations[moduleId]
+    if (applied.includes(version)) return // idempotent
+    applied.push(version)
   }
 }
 

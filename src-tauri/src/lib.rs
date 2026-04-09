@@ -7,6 +7,8 @@ mod commands;
 pub struct DbState {
     pub conn: Mutex<Option<rusqlite::Connection>>,
     pub current_path: Mutex<Option<String>>,
+    pub company_dir: Mutex<Option<String>>,
+    pub attached_modules: Mutex<Vec<String>>,
     pub app_data_dir: String,
 }
 
@@ -32,6 +34,8 @@ pub fn run() {
             app.manage(DbState {
                 conn: Mutex::new(None),
                 current_path: Mutex::new(None),
+                company_dir: Mutex::new(None),
+                attached_modules: Mutex::new(Vec::new()),
                 app_data_dir: app_data_dir.to_string_lossy().to_string(),
             });
 
@@ -109,6 +113,16 @@ pub fn run() {
             commands::get_document_path,
             commands::delete_document,
             commands::get_document_count,
+            // Phase 38: Module Storage Sandbox
+            commands::attach_module_db,
+            commands::detach_module_db,
+            commands::list_attached_modules,
+            commands::module_create_table,
+            commands::module_insert,
+            commands::module_query,
+            commands::module_update,
+            commands::module_delete,
+            commands::module_execute_migration,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
