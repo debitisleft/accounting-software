@@ -1,15 +1,87 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 44 Complete — Health Monitor & Error Boundaries
+## STATUS: Phase 45 Complete — Distribution & Install Flow
 
 ## CURRENT STATE (2026-04-09)
-- 44 phases complete, 462 tests passing (1 skipped)
-- Plugin architecture: directory format + ATTACH + migration coordinator +
-  module_registry + frozen SDK v1 + service registry + permissions enforcer
-  + sync hooks + async events + sandboxed iframe UI + UI extensions +
-  per-module health monitor with auto-disable
+- 45 phases complete, 477 tests passing (1 skipped)
+- Plugin architecture COMPLETE through distribution: .zip package format,
+  10-step install flow, Ed25519 signature verification, validate / export /
+  update commands, full lifecycle from .zip → active module
 
 ## COMPLETED
+
+### Phase 45 — Distribution & Install Flow (2026-04-09)
+Modules ship as .zip packages containing module.json + optional module.sig +
+frontend/ + migrations/. The 10-step install flow validates the package,
+verifies the signature, checks compatibility, requests user consent, copies
+files into the company directory, registers in module_registry, runs
+migrations, and initializes the module. Cleans up on failure after the Copy
+step. Fix #9.
+
+**New dependencies:** `zip = "2"` (deflate-only), `ed25519-dalek = "2"` (std).
+
+**src-tauri/src/packaging.rs (NEW):**
+- `ModulePackage` struct holds an in-memory representation: parsed manifest,
+  files map (path → bytes), optional signature.
+- `extract_zip(zip_path)` — opens the .zip, walks every entry, rejects path
+  traversal (`..`, leading `/` or `\`), parses module.json, captures
+  module.sig if present.
+- `validate_manifest()` — type-checks against ModuleManifest, enforces
+  non-empty id/name/version and `[A-Za-z0-9._-]+` id charset.
+- `verify_signature(db, package, author_id)` — Ed25519 verify against
+  trusted-keys.json. Returns Ok(true) if verified, Ok(false) if no signature
+  (host emits an unsigned warning), Err if verification failed.
+- `check_sdk_compat()` — only "1" is supported today.
+- `check_conflicts()` — rejects duplicate ids in module_registry.
+- `copy_package_files()` — writes every file under
+  `{company_dir}/modules/{module_id}/`.
+- `cleanup_install()` — failure path: deletes registry row, permissions, and
+  install dir for partial installs after the Copy step.
+- `install_from_package()` — full pipeline returning a structured
+  `InstallReport { success, module_id, steps_completed, errors, warnings }`
+  so the host UI can render step-by-step progress.
+
+**6 new Tauri commands:**
+- `install_module_from_zip(zip_path, author_id?)` — extract + install_from_package
+- `validate_module_package(zip_path)` — steps 1-5 without installing,
+  returns ValidationReport
+- `export_module_package(module_id, output_path)` — re-zips an installed
+  module's install dir using the zip writer
+- `check_module_updates(module_id, new_zip_path)` — semver compare of
+  installed vs new version
+- `update_module(module_id, zip_path)` — replaces install dir contents but
+  preserves the module's `.sqlite` (lives outside the install dir, so the
+  data survives the update)
+- `add_trusted_key(author_id, public_key_hex)` — appends to trusted-keys.json
+  in app_data_dir; hex-encoded for storage
+
+**MockApi parity:** packages staged via `stagePackage(zipPath, manifest,
+files, signature?)`. Mock signature uses string equality against
+`trustedKeys` instead of real Ed25519 (real implementation lives in Rust).
+The 10-step pipeline returns the same InstallReport shape as the kernel.
+Update preserves moduleStores by alias so the data-preservation invariant
+is verifiable in tests. Export re-emits a package back into packageStore
+keyed by the output path.
+
+**api.ts wrappers:** all 6 commands plus the InstallReport, ValidationReport,
+and UpdateCheck interfaces.
+
+- 15 new tests in packaging.test.ts: full 10-step success, invalid manifest
+  fails at validate, sdk_version 99 fails at compat, duplicate id fails at
+  conflicts, file copy + registry insertion, uninstall removes registry,
+  uninstall keep_data preserves .sqlite, update upgrades version while
+  preserving module store rows, semver newer/older detection,
+  validate_module_package without installing, conflict warning in validate,
+  export_module_package re-packages, signed module with trusted key verifies,
+  signed with mismatched signature rejected, unsigned shows warning
+- 477 tests passing (1 skipped); cargo check + npm run check clean
+
+**Deferred:** ModuleManagerPage React UI (Settings > Modules) — install
+wizard with file picker, progress steps, consent dialog, per-module
+Disable/Enable/Uninstall/Update/Export buttons. Kernel-side commands and
+contracts are fully in place.
+
+
 
 ### Phase 44 — Health Monitor & Error Boundaries (2026-04-09)
 Per-module error counters with a sliding time window. When a module exceeds

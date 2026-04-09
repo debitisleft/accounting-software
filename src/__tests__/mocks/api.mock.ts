@@ -199,6 +199,19 @@ export class MockApi {
   private healthLogSeq = 1
   /// Override clock for tests that need to simulate window expiry.
   healthClock: () => number = () => Math.floor(Date.now() / 1000)
+  // Phase 45: Distribution & Install Flow
+  /// Map of zip-path → in-memory package (manifest + files + optional sig).
+  /// Tests stage packages with stagePackage(); the install flow then reads
+  /// from this map instead of touching the real filesystem.
+  packageStore: Map<
+    string,
+    {
+      manifest: Record<string, unknown>
+      files: Record<string, string>
+      signature?: string
+    }
+  > = new Map()
+  trustedKeys: Map<string, string> = new Map() // author_id → public_key_hex
   private moduleRowSeq = 1
   private nextId = 1
   private auditSeq = 0
@@ -304,6 +317,8 @@ export class MockApi {
     this.moduleFileSystem = new Map()
     this.healthMonitor = new Map()
     this.healthLog = []
+    this.packageStore = new Map()
+    this.trustedKeys = new Map()
     // Retroactively record kernel migrations (matches Rust db.rs run_migrations)
     const kernelMigrations: [number, string][] = [
       [1, 'Initial kernel schema (accounts, transactions, journal_entries, settings)'],
@@ -3818,6 +3833,245 @@ export class MockApi {
       .slice()
       .reverse()
       .slice(0, limit)
+  }
+
+  // ── Phase 45: Distribution & Install Flow ───────────────
+
+  /// Test helper: stage a package as if it were a .zip on disk. The install
+  /// flow reads from this map keyed by zip_path.
+  stagePackage(
+    zipPath: string,
+    manifest: Record<string, unknown>,
+    files: Record<string, string> = {},
+    signature?: string,
+  ): void {
+    this.packageStore.set(zipPath, { manifest, files, signature })
+  }
+
+  addTrustedKey(authorId: string, publicKeyHex: string): void {
+    this.trustedKeys.set(authorId, publicKeyHex)
+  }
+
+  /// Mirrors install_from_package: 10-step pipeline that returns a structured
+  /// report instead of throwing on every error so the host UI can show steps.
+  installModuleFromZip(
+    zipPath: string,
+    authorId?: string,
+  ): {
+    success: boolean
+    module_id: string | null
+    steps_completed: string[]
+    errors: string[]
+    warnings: string[]
+  } {
+    const report: ReturnType<MockApi['installModuleFromZip']> = {
+      success: false,
+      module_id: null,
+      steps_completed: [],
+      errors: [],
+      warnings: [],
+    }
+
+    // Step 1: extract
+    const pkg = this.packageStore.get(zipPath)
+    if (!pkg) {
+      report.errors.push(`Failed to open zip: ${zipPath}`)
+      return report
+    }
+    report.steps_completed.push('extract')
+
+    // Step 2: validate
+    const m = pkg.manifest as {
+      id?: string
+      name?: string
+      version?: string
+      sdk_version?: string
+      author?: string
+      permissions?: string[]
+    }
+    if (!m.id) { report.errors.push('Manifest id cannot be empty'); return report }
+    if (!m.name) { report.errors.push('Manifest name cannot be empty'); return report }
+    if (!m.version) { report.errors.push('Manifest version cannot be empty'); return report }
+    if (!/^[A-Za-z0-9._-]+$/.test(m.id)) {
+      report.errors.push(`Invalid module id '${m.id}'`)
+      return report
+    }
+    report.module_id = m.id
+    report.steps_completed.push('validate')
+
+    // Step 3: verify signature
+    if (!pkg.signature) {
+      report.warnings.push('Module is unsigned — install at your own risk')
+    } else {
+      const author = authorId ?? m.author ?? ''
+      const trusted = this.trustedKeys.get(author)
+      if (!trusted) {
+        report.errors.push(`No trusted key for author '${author}'`)
+        return report
+      }
+      // Mock signature: trusted key string equality (real Rust uses Ed25519)
+      if (trusted !== pkg.signature) {
+        report.errors.push('Signature verification failed')
+        return report
+      }
+      report.steps_completed.push('verify')
+    }
+
+    // Step 4: compat
+    if (m.sdk_version !== '1') {
+      report.errors.push(`Unsupported sdk_version '${m.sdk_version}'`)
+      return report
+    }
+    report.steps_completed.push('compat')
+
+    // Step 5: conflicts
+    if (this.moduleRegistry.some((mr) => mr.id === m.id)) {
+      report.errors.push(`Module already installed: ${m.id}`)
+      return report
+    }
+    report.steps_completed.push('conflicts')
+
+    // Step 6: consent — assumed approved by host UI
+    report.steps_completed.push('consent')
+
+    // Step 7: copy — record files in the mock filesystem
+    for (const [filePath, contents] of Object.entries(pkg.files)) {
+      this.stageModuleFile(m.id, filePath, contents)
+    }
+    report.steps_completed.push('copy')
+
+    // Step 8: register (delegates to installModule which manages permissions)
+    try {
+      this.installModule(
+        {
+          id: m.id,
+          name: m.name,
+          version: m.version,
+          sdk_version: m.sdk_version,
+          permissions: m.permissions ?? [],
+        },
+        `/install/${m.id}`,
+      )
+      report.steps_completed.push('register')
+    } catch (e) {
+      report.errors.push(e instanceof Error ? e.message : String(e))
+      return report
+    }
+
+    // Step 9-10: migrate + init (Phase 45 marks them complete; the runtime
+    // will trigger run_module_migrations on first attach)
+    report.steps_completed.push('migrate')
+    report.steps_completed.push('init')
+
+    report.success = true
+    return report
+  }
+
+  validateModulePackage(zipPath: string): {
+    valid: boolean
+    manifest: unknown | null
+    errors: string[]
+    warnings: string[]
+  } {
+    const out: ReturnType<MockApi['validateModulePackage']> = {
+      valid: false,
+      manifest: null,
+      errors: [],
+      warnings: [],
+    }
+    const pkg = this.packageStore.get(zipPath)
+    if (!pkg) { out.errors.push(`Failed to open zip: ${zipPath}`); return out }
+    const m = pkg.manifest as { id?: string; name?: string; version?: string; sdk_version?: string }
+    out.manifest = pkg.manifest
+    if (!m.id || !m.name || !m.version || !m.sdk_version) {
+      out.errors.push('Invalid manifest: missing required fields')
+      return out
+    }
+    if (m.sdk_version !== '1') {
+      out.errors.push(`Unsupported sdk_version '${m.sdk_version}'`)
+      return out
+    }
+    if (!pkg.signature) out.warnings.push('Module is unsigned')
+    if (this.moduleRegistry.some((mr) => mr.id === m.id)) {
+      out.warnings.push(`Conflict: Module already installed: ${m.id}`)
+    }
+    out.valid = true
+    return out
+  }
+
+  exportModulePackage(moduleId: string, outputPath: string): string {
+    this.guardFileOpen()
+    const reg = this.moduleRegistry.find((m) => m.id === moduleId)
+    if (!reg) throw new Error(`Module not found: ${moduleId}`)
+    // Re-package: read staged files for this module and write a new entry
+    // into packageStore at outputPath.
+    const fs = this.moduleFileSystem.get(moduleId) ?? {}
+    const manifest: Record<string, unknown> = {
+      id: reg.id,
+      name: reg.name,
+      version: reg.version,
+      sdk_version: reg.sdk_version,
+      permissions: reg.permissions,
+    }
+    this.packageStore.set(outputPath, {
+      manifest,
+      files: { ...fs, 'module.json': JSON.stringify(manifest) },
+    })
+    return outputPath
+  }
+
+  checkModuleUpdates(moduleId: string, newZipPath: string): {
+    installed_version: string
+    new_version: string
+    is_newer: boolean
+  } {
+    const reg = this.moduleRegistry.find((m) => m.id === moduleId)
+    if (!reg) throw new Error(`Module not found: ${moduleId}`)
+    const pkg = this.packageStore.get(newZipPath)
+    if (!pkg) throw new Error(`Failed to open zip: ${newZipPath}`)
+    const newVersion = (pkg.manifest as { version?: string; id?: string }).version ?? '0.0.0'
+    const newId = (pkg.manifest as { id?: string }).id
+    if (newId !== moduleId) {
+      throw new Error(`Zip module id '${newId}' does not match installed id '${moduleId}'`)
+    }
+    const parse = (v: string): [number, number, number] => {
+      const [a = 0, b = 0, c = 0] = v.split('.').map((p) => parseInt(p, 10) || 0)
+      return [a, b, c]
+    }
+    const cmp = (a: [number, number, number], b: [number, number, number]) =>
+      a[0] !== b[0] ? a[0] - b[0] : a[1] !== b[1] ? a[1] - b[1] : a[2] - b[2]
+    return {
+      installed_version: reg.version,
+      new_version: newVersion,
+      is_newer: cmp(parse(newVersion), parse(reg.version)) > 0,
+    }
+  }
+
+  updateModule(moduleId: string, zipPath: string): typeof this.moduleRegistry[0] {
+    this.guardFileOpen()
+    const reg = this.moduleRegistry.find((m) => m.id === moduleId)
+    if (!reg) throw new Error(`Module not found: ${moduleId}`)
+    const pkg = this.packageStore.get(zipPath)
+    if (!pkg) throw new Error(`Failed to open zip: ${zipPath}`)
+    const m = pkg.manifest as { id?: string; version?: string; sdk_version?: string; permissions?: string[] }
+    if (m.id !== moduleId) {
+      throw new Error(`Zip module id '${m.id}' does not match installed id '${moduleId}'`)
+    }
+    if (m.sdk_version !== '1') throw new Error(`Unsupported sdk_version '${m.sdk_version}'`)
+
+    // Replace the staged frontend files but PRESERVE module storage data
+    // (moduleStores by alias remains intact — that's how update keeps data).
+    this.moduleFileSystem.delete(moduleId)
+    for (const [filePath, contents] of Object.entries(pkg.files)) {
+      this.stageModuleFile(moduleId, filePath, contents)
+    }
+
+    reg.version = m.version ?? reg.version
+    reg.sdk_version = m.sdk_version ?? reg.sdk_version
+    if (m.permissions) reg.permissions = m.permissions
+    reg.updated_at = new Date().toISOString()
+    reg.error_message = null
+    return reg
   }
 }
 

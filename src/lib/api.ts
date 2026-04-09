@@ -950,6 +950,46 @@ export const api = {
 
   getHealthHistory: (moduleId: string, limit?: number) =>
     invoke<HealthLogEntry[]>('get_health_history', { moduleId, limit: limit ?? null }),
+
+  // Phase 45: Distribution & Install Flow
+  installModuleFromZip: (zipPath: string, authorId?: string) =>
+    invoke<InstallReport>('install_module_from_zip', { zipPath, authorId: authorId ?? null }),
+
+  validateModulePackage: (zipPath: string) =>
+    invoke<ValidationReport>('validate_module_package', { zipPath }),
+
+  exportModulePackage: (moduleId: string, outputPath: string) =>
+    invoke<string>('export_module_package', { moduleId, outputPath }),
+
+  checkModuleUpdates: (moduleId: string, newZipPath: string) =>
+    invoke<UpdateCheck>('check_module_updates', { moduleId, newZipPath }),
+
+  updateModule: (moduleId: string, zipPath: string) =>
+    invoke<ModuleRegistryEntry>('update_module', { moduleId, zipPath }),
+
+  addTrustedKey: (authorId: string, publicKeyHex: string) =>
+    invoke<void>('add_trusted_key', { authorId, publicKeyHex }),
+}
+
+export interface InstallReport {
+  success: boolean
+  module_id: string | null
+  steps_completed: string[]
+  errors: string[]
+  warnings: string[]
+}
+
+export interface ValidationReport {
+  valid: boolean
+  manifest: unknown | null
+  errors: string[]
+  warnings: string[]
+}
+
+export interface UpdateCheck {
+  installed_version: string
+  new_version: string
+  is_newer: boolean
 }
 
 export interface ModuleHealth {

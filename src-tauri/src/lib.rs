@@ -10,6 +10,7 @@ mod hooks;
 mod events;
 mod ui_extensions;
 mod health;
+mod packaging;
 
 pub struct DbState {
     pub conn: Mutex<Option<rusqlite::Connection>>,
@@ -212,6 +213,13 @@ pub fn run() {
             health::get_health_status,
             health::get_all_health_statuses,
             health::get_health_history,
+            // Phase 45: Distribution & Install Flow
+            packaging::install_module_from_zip,
+            packaging::validate_module_package,
+            packaging::export_module_package,
+            packaging::check_module_updates,
+            packaging::update_module,
+            packaging::add_trusted_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
