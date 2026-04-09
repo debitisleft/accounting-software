@@ -138,6 +138,26 @@ export class MockApi {
   pendingMigrations: { module_id: string; version: number; description: string; sql: string; checksum: string }[] = []
   moduleDependencies: { module_id: string; depends_on_module_id: string; min_version: number }[] = []
   private migrationLogSeq = 1
+  // Phase 40: Module Lifecycle + SDK v1 service registry
+  moduleRegistry: {
+    id: string
+    name: string
+    version: string
+    sdk_version: string
+    description: string | null
+    author: string | null
+    license: string | null
+    permissions: string[]
+    dependencies: unknown
+    entry_point: string | null
+    install_path: string | null
+    status: string
+    installed_at: string
+    updated_at: string
+    error_message: string | null
+  }[] = []
+  serviceRegistry: { module_id: string; service_name: string; info: { description?: string | null; params_schema?: unknown; returns_schema?: unknown } }[] = []
+  moduleSqliteFiles: Set<string> = new Set() // simulates filesystem .sqlite files
   private moduleRowSeq = 1
   private nextId = 1
   private auditSeq = 0
@@ -230,6 +250,9 @@ export class MockApi {
     this.migrationLog = []
     this.pendingMigrations = []
     this.moduleDependencies = []
+    this.moduleRegistry = []
+    this.serviceRegistry = []
+    this.moduleSqliteFiles = new Set()
     // Retroactively record kernel migrations (matches Rust db.rs run_migrations)
     const kernelMigrations: [number, string][] = [
       [1, 'Initial kernel schema (accounts, transactions, journal_entries, settings)'],
@@ -3020,6 +3043,202 @@ export class MockApi {
     }
 
     return { applied, failed: null, error: null }
+  }
+
+  // ── Phase 40: Module Lifecycle ──────────────────────────
+
+  private static SUPPORTED_SDK_VERSIONS = ['1']
+
+  /// Module ids in the registry can contain dots/dashes (com.example.invoicing).
+  /// Translate to a SQL-safe alias for module storage by replacing them.
+  private moduleAlias(id: string): string {
+    return id.replace(/[.-]/g, '_')
+  }
+
+  installModule(
+    manifest: {
+      id: string
+      name: string
+      version: string
+      sdk_version: string
+      description?: string | null
+      author?: string | null
+      license?: string | null
+      permissions?: string[]
+      dependencies?: unknown[]
+      entry_point?: string | null
+    },
+    installPath?: string,
+  ): typeof this.moduleRegistry[0] {
+    this.guardFileOpen()
+    if (!manifest.id) throw new Error('Manifest id cannot be empty')
+    if (!MockApi.SUPPORTED_SDK_VERSIONS.includes(manifest.sdk_version)) {
+      throw new Error(
+        `Unsupported sdk_version '${manifest.sdk_version}': this kernel supports ${JSON.stringify(MockApi.SUPPORTED_SDK_VERSIONS)}`,
+      )
+    }
+    if (!/^[A-Za-z0-9._-]+$/.test(manifest.id)) {
+      throw new Error(`Invalid module id '${manifest.id}': allowed chars are A-Z, 0-9, '.', '_', '-'`)
+    }
+    if (this.moduleRegistry.some((m) => m.id === manifest.id)) {
+      throw new Error(`Module already installed: ${manifest.id}`)
+    }
+
+    const now = new Date().toISOString()
+    const entry = {
+      id: manifest.id,
+      name: manifest.name,
+      version: manifest.version,
+      sdk_version: manifest.sdk_version,
+      description: manifest.description ?? null,
+      author: manifest.author ?? null,
+      license: manifest.license ?? null,
+      permissions: manifest.permissions ?? [],
+      dependencies: manifest.dependencies ?? [],
+      entry_point: manifest.entry_point ?? null,
+      install_path: installPath ?? null,
+      status: 'active',
+      installed_at: now,
+      updated_at: now,
+      error_message: null,
+    }
+    this.moduleRegistry.push(entry)
+    // Reserve the module's .sqlite file slot (simulates filesystem creation)
+    this.moduleSqliteFiles.add(this.moduleAlias(manifest.id))
+    return entry
+  }
+
+  uninstallModule(moduleId: string, keepData?: boolean): void {
+    this.guardFileOpen()
+    const idx = this.moduleRegistry.findIndex((m) => m.id === moduleId)
+    if (idx === -1) throw new Error(`Module not found: ${moduleId}`)
+
+    const alias = this.moduleAlias(moduleId)
+
+    // Mark uninstalling, then DETACH if attached, then optionally delete .sqlite
+    this.moduleRegistry[idx].status = 'uninstalling'
+    if (this.attachedModules.includes(alias)) {
+      this.attachedModules = this.attachedModules.filter((m) => m !== alias)
+    }
+    if (!keepData) {
+      this.moduleSqliteFiles.delete(alias)
+      delete this.moduleStores[alias]
+    }
+    // Clear services for this module
+    this.serviceRegistry = this.serviceRegistry.filter((s) => s.module_id !== moduleId)
+    // Remove from registry + clean migration_log + module_dependencies + pending
+    this.moduleRegistry.splice(idx, 1)
+    this.migrationLog = this.migrationLog.filter((l) => l.module_id !== alias)
+    this.pendingMigrations = this.pendingMigrations.filter((p) => p.module_id !== alias)
+    this.moduleDependencies = this.moduleDependencies.filter(
+      (d) => d.module_id !== alias && d.depends_on_module_id !== alias,
+    )
+  }
+
+  enableModule(moduleId: string): void {
+    this.guardFileOpen()
+    const m = this.moduleRegistry.find((x) => x.id === moduleId)
+    if (!m) throw new Error(`Module not found: ${moduleId}`)
+    m.status = 'active'
+    m.error_message = null
+    m.updated_at = new Date().toISOString()
+  }
+
+  disableModule(moduleId: string): void {
+    this.guardFileOpen()
+    const m = this.moduleRegistry.find((x) => x.id === moduleId)
+    if (!m) throw new Error(`Module not found: ${moduleId}`)
+    m.status = 'disabled'
+    m.updated_at = new Date().toISOString()
+
+    const alias = this.moduleAlias(moduleId)
+    this.attachedModules = this.attachedModules.filter((a) => a !== alias)
+    this.serviceRegistry = this.serviceRegistry.filter((s) => s.module_id !== moduleId)
+  }
+
+  getModuleInfo(moduleId: string): typeof this.moduleRegistry[0] {
+    this.guardFileOpen()
+    const m = this.moduleRegistry.find((x) => x.id === moduleId)
+    if (!m) throw new Error(`Module not found: ${moduleId}`)
+    return m
+  }
+
+  listInstalledModules(): typeof this.moduleRegistry {
+    this.guardFileOpen()
+    return [...this.moduleRegistry].sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  // ── Phase 40: SDK v1 (host-side bridges that delegate to engine methods) ──
+
+  getSdkVersion(): string {
+    return '1'
+  }
+
+  sdkRegisterService(
+    moduleId: string,
+    serviceName: string,
+    info: { description?: string | null; params_schema?: unknown; returns_schema?: unknown },
+  ): void {
+    this.guardFileOpen()
+    if (!serviceName) throw new Error('service_name cannot be empty')
+    // Replace any existing entry for the same (module_id, service_name)
+    this.serviceRegistry = this.serviceRegistry.filter(
+      (s) => !(s.module_id === moduleId && s.service_name === serviceName),
+    )
+    this.serviceRegistry.push({ module_id: moduleId, service_name: serviceName, info })
+  }
+
+  sdkCallService(
+    callerModuleId: string,
+    targetModuleId: string,
+    serviceName: string,
+    params: unknown,
+  ): { ok: boolean; module_id: string; service_name: string; params: unknown } {
+    this.guardFileOpen()
+    void callerModuleId // Phase 41 will check services:call
+    const svc = this.serviceRegistry.find(
+      (s) => s.module_id === targetModuleId && s.service_name === serviceName,
+    )
+    if (!svc) throw new Error(`Service not found: ${targetModuleId}::${serviceName}`)
+    return { ok: true, module_id: svc.module_id, service_name: svc.service_name, params }
+  }
+
+  sdkListServices(): typeof this.serviceRegistry {
+    return [...this.serviceRegistry].sort(
+      (a, b) =>
+        a.module_id.localeCompare(b.module_id) || a.service_name.localeCompare(b.service_name),
+    )
+  }
+
+  // SDK v1 thin wrappers — host-side they delegate to the existing mock engine
+  // methods, ignoring module_id (Phase 41 adds permission checks).
+  sdkCreateTransaction(
+    moduleId: string,
+    input: { date: string; description: string; entries: { account_id: string; debit: number; credit: number; memo?: string }[] },
+  ): string {
+    void moduleId
+    return this.createTransaction(input)
+  }
+
+  sdkGetChartOfAccounts(moduleId: string): Account[] {
+    void moduleId
+    return this.getAccounts()
+  }
+
+  sdkStorageCreateTable(moduleId: string, tableName: string, columnsSql: string): void {
+    this.moduleCreateTable(moduleId, tableName, columnsSql)
+  }
+
+  sdkStorageInsert(moduleId: string, tableName: string, row: Record<string, unknown>): number {
+    return this.moduleInsert(moduleId, tableName, row)
+  }
+
+  sdkStorageQuery(
+    moduleId: string,
+    tableName: string,
+    filters?: { column: string; op: string; value: unknown }[],
+  ): Record<string, unknown>[] {
+    return this.moduleQuery(moduleId, tableName, filters)
   }
 
   getMigrationStatus(moduleId?: string): {

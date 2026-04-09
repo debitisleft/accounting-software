@@ -339,6 +339,24 @@ fn create_tables(conn: &Connection) -> Result<()> {
             UNIQUE(module_id, depends_on_module_id)
         );
 
+        CREATE TABLE IF NOT EXISTS module_registry (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            version TEXT NOT NULL,
+            sdk_version TEXT NOT NULL,
+            description TEXT,
+            author TEXT,
+            license TEXT,
+            permissions TEXT NOT NULL DEFAULT '[]',
+            dependencies TEXT NOT NULL DEFAULT '[]',
+            entry_point TEXT,
+            install_path TEXT,
+            status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled','failed','uninstalling')),
+            installed_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            error_message TEXT
+        );
+
         CREATE TABLE IF NOT EXISTS module_pending_migrations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             module_id TEXT NOT NULL,
@@ -428,6 +446,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             (6, "Add cash_flow_category and is_cash_account to accounts"),
             (7, "Add is_reconciled to journal_entries"),
             (8, "Add migration_log, module_dependencies, module_pending_migrations"),
+            (9, "Add module_registry (Phase 40 SDK v1)"),
         ];
         for (version, description) in kernel_migrations {
             conn.execute(

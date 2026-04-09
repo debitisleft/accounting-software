@@ -85,6 +85,11 @@ fn detach_all_modules(db: &DbState) {
     }
 }
 
+/// Public re-export so other modules (sdk_v1) can validate identifiers.
+pub fn validate_ident_pub(s: &str) -> Result<(), String> {
+    validate_ident(s)
+}
+
 /// Validate that a string is safe to use as a SQL identifier (alphanumeric + underscore).
 fn validate_ident(s: &str) -> Result<(), String> {
     if s.is_empty() {
@@ -5397,3 +5402,289 @@ pub async fn module_execute_migration(
 
     Ok(())
 }
+
+// ── Phase 40: Module Registry & Lifecycle ────────────────
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ModuleManifest {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub sdk_version: String,
+    pub description: Option<String>,
+    pub author: Option<String>,
+    pub license: Option<String>,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    #[serde(default)]
+    pub dependencies: Vec<serde_json::Value>,
+    pub entry_point: Option<String>,
+    #[serde(default)]
+    pub migrations: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct ModuleRegistryEntry {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub sdk_version: String,
+    pub description: Option<String>,
+    pub author: Option<String>,
+    pub license: Option<String>,
+    pub permissions: Vec<String>,
+    pub dependencies: serde_json::Value,
+    pub entry_point: Option<String>,
+    pub install_path: Option<String>,
+    pub status: String,
+    pub installed_at: String,
+    pub updated_at: String,
+    pub error_message: Option<String>,
+}
+
+const SUPPORTED_SDK_VERSIONS: &[&str] = &["1"];
+
+fn row_to_registry_entry(row: &rusqlite::Row) -> rusqlite::Result<ModuleRegistryEntry> {
+    let perms_json: String = row.get(7)?;
+    let deps_json: String = row.get(8)?;
+    Ok(ModuleRegistryEntry {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        version: row.get(2)?,
+        sdk_version: row.get(3)?,
+        description: row.get(4)?,
+        author: row.get(5)?,
+        license: row.get(6)?,
+        permissions: serde_json::from_str(&perms_json).unwrap_or_default(),
+        dependencies: serde_json::from_str(&deps_json).unwrap_or(serde_json::json!([])),
+        entry_point: row.get(9)?,
+        install_path: row.get(10)?,
+        status: row.get(11)?,
+        installed_at: row.get(12)?,
+        updated_at: row.get(13)?,
+        error_message: row.get(14)?,
+    })
+}
+
+const REGISTRY_COLUMNS: &str =
+    "id, name, version, sdk_version, description, author, license, permissions, dependencies,
+     entry_point, install_path, status, installed_at, updated_at, error_message";
+
+#[tauri::command]
+pub async fn install_module(
+    db: State<'_, DbState>,
+    manifest_json: serde_json::Value,
+    install_path: Option<String>,
+) -> Result<ModuleRegistryEntry, String> {
+    let manifest: ModuleManifest = serde_json::from_value(manifest_json)
+        .map_err(|e| format!("Invalid manifest: {}", e))?;
+
+    if manifest.id.is_empty() {
+        return Err("Manifest id cannot be empty".to_string());
+    }
+    if !SUPPORTED_SDK_VERSIONS.contains(&manifest.sdk_version.as_str()) {
+        return Err(format!(
+            "Unsupported sdk_version '{}': this kernel supports {:?}",
+            manifest.sdk_version, SUPPORTED_SDK_VERSIONS
+        ));
+    }
+
+    // Module ids in the registry can contain dots (e.g. com.example.invoicing).
+    // Translate to a SQL-safe alias for ATTACH purposes by replacing dots with
+    // underscores. Reject anything that isn't [A-Za-z0-9._-].
+    if !manifest.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-') {
+        return Err(format!("Invalid module id '{}': allowed chars are A-Z, 0-9, '.', '_', '-'", manifest.id));
+    }
+
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+
+    // Conflict check
+    let exists: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM module_registry WHERE id = ?1",
+        params![manifest.id], |r| r.get(0),
+    ).map_err(|e| e.to_string())?;
+    if exists {
+        return Err(format!("Module already installed: {}", manifest.id));
+    }
+
+    let perms_json = serde_json::to_string(&manifest.permissions).unwrap_or_else(|_| "[]".to_string());
+    let deps_json = serde_json::to_string(&manifest.dependencies).unwrap_or_else(|_| "[]".to_string());
+
+    conn.execute(
+        "INSERT INTO module_registry
+         (id, name, version, sdk_version, description, author, license, permissions, dependencies,
+          entry_point, install_path, status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'active')",
+        params![
+            manifest.id, manifest.name, manifest.version, manifest.sdk_version,
+            manifest.description, manifest.author, manifest.license,
+            perms_json, deps_json,
+            manifest.entry_point, install_path
+        ],
+    ).map_err(|e| format!("Failed to register module: {}", e))?;
+
+    // Read back the inserted row
+    let entry = conn.query_row(
+        &format!("SELECT {} FROM module_registry WHERE id = ?1", REGISTRY_COLUMNS),
+        params![manifest.id],
+        row_to_registry_entry,
+    ).map_err(|e| e.to_string())?;
+
+    Ok(entry)
+}
+
+#[tauri::command]
+pub async fn uninstall_module(
+    db: State<'_, DbState>,
+    module_id: String,
+    keep_data: Option<bool>,
+) -> Result<(), String> {
+    let keep = keep_data.unwrap_or(false);
+
+    // Mark as uninstalling, then DETACH, then optionally delete the .sqlite,
+    // then remove from registry. Service registry entries cleared as well.
+    {
+        let guard = get_conn(&db)?;
+        let conn = guard.as_ref().unwrap();
+        let updated = conn.execute(
+            "UPDATE module_registry SET status = 'uninstalling', updated_at = datetime('now')
+             WHERE id = ?1",
+            params![module_id],
+        ).map_err(|e| e.to_string())?;
+        if updated == 0 {
+            return Err(format!("Module not found: {}", module_id));
+        }
+    }
+
+    // DETACH if attached. Module ids may contain dots — derive the alias used
+    // when attaching by replacing them with underscores.
+    let alias = module_id.replace(['.', '-'], "_");
+    {
+        let attached_now = {
+            let attached = db.attached_modules.lock().map_err(|e| e.to_string())?;
+            attached.iter().any(|m| m == &alias)
+        };
+        if attached_now {
+            let guard = get_conn(&db)?;
+            let conn = guard.as_ref().unwrap();
+            let _ = conn.execute_batch(&format!("DETACH DATABASE module_{};", sanitize_ident(&alias)));
+            drop(guard);
+            let mut attached = db.attached_modules.lock().map_err(|e| e.to_string())?;
+            attached.retain(|m| m != &alias);
+        }
+    }
+
+    // Optionally delete the module's .sqlite file
+    if !keep {
+        if let Ok(dir_guard) = db.company_dir.lock() {
+            if let Some(ref dir) = *dir_guard {
+                let path = format!("{}/modules/{}.sqlite", dir, alias);
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+
+    // Clear service registry
+    crate::sdk_v1::unregister_module_services(&db, &module_id);
+
+    // Remove from registry + clean migration_log + module_dependencies + pending
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    conn.execute("DELETE FROM module_registry WHERE id = ?1", params![module_id])
+        .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM migration_log WHERE module_id = ?1", params![alias])
+        .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM module_pending_migrations WHERE module_id = ?1", params![alias])
+        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM module_dependencies WHERE module_id = ?1 OR depends_on_module_id = ?1",
+        params![alias],
+    ).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn enable_module(
+    db: State<'_, DbState>,
+    module_id: String,
+) -> Result<(), String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    let n = conn.execute(
+        "UPDATE module_registry SET status = 'active', error_message = NULL,
+         updated_at = datetime('now') WHERE id = ?1",
+        params![module_id],
+    ).map_err(|e| e.to_string())?;
+    if n == 0 {
+        return Err(format!("Module not found: {}", module_id));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn disable_module(
+    db: State<'_, DbState>,
+    module_id: String,
+) -> Result<(), String> {
+    {
+        let guard = get_conn(&db)?;
+        let conn = guard.as_ref().unwrap();
+        let n = conn.execute(
+            "UPDATE module_registry SET status = 'disabled', updated_at = datetime('now')
+             WHERE id = ?1",
+            params![module_id],
+        ).map_err(|e| e.to_string())?;
+        if n == 0 {
+            return Err(format!("Module not found: {}", module_id));
+        }
+    }
+
+    // DETACH the module's database (if attached) and clear its services.
+    let alias = module_id.replace(['.', '-'], "_");
+    let attached_now = {
+        let attached = db.attached_modules.lock().map_err(|e| e.to_string())?;
+        attached.iter().any(|m| m == &alias)
+    };
+    if attached_now {
+        let guard = get_conn(&db)?;
+        let conn = guard.as_ref().unwrap();
+        let _ = conn.execute_batch(&format!("DETACH DATABASE module_{};", sanitize_ident(&alias)));
+        drop(guard);
+        let mut attached = db.attached_modules.lock().map_err(|e| e.to_string())?;
+        attached.retain(|m| m != &alias);
+    }
+    crate::sdk_v1::unregister_module_services(&db, &module_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_module_info(
+    db: State<'_, DbState>,
+    module_id: String,
+) -> Result<ModuleRegistryEntry, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    conn.query_row(
+        &format!("SELECT {} FROM module_registry WHERE id = ?1", REGISTRY_COLUMNS),
+        params![module_id],
+        row_to_registry_entry,
+    ).map_err(|_| format!("Module not found: {}", module_id))
+}
+
+#[tauri::command]
+pub async fn list_installed_modules(
+    db: State<'_, DbState>,
+) -> Result<Vec<ModuleRegistryEntry>, String> {
+    let guard = get_conn(&db)?;
+    let conn = guard.as_ref().unwrap();
+    let mut stmt = conn.prepare(
+        &format!("SELECT {} FROM module_registry ORDER BY name", REGISTRY_COLUMNS)
+    ).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], row_to_registry_entry).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for r in rows { out.push(r.map_err(|e| e.to_string())?); }
+    Ok(out)
+}
+

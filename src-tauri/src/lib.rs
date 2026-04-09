@@ -1,14 +1,18 @@
+use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::Manager;
 
 mod db;
 mod commands;
+mod sdk_v1;
 
 pub struct DbState {
     pub conn: Mutex<Option<rusqlite::Connection>>,
     pub current_path: Mutex<Option<String>>,
     pub company_dir: Mutex<Option<String>>,
     pub attached_modules: Mutex<Vec<String>>,
+    /// Phase 40: in-memory service registry. Key is (module_id, service_name).
+    pub service_registry: Mutex<HashMap<(String, String), sdk_v1::RegisteredService>>,
     pub app_data_dir: String,
 }
 
@@ -36,6 +40,7 @@ pub fn run() {
                 current_path: Mutex::new(None),
                 company_dir: Mutex::new(None),
                 attached_modules: Mutex::new(Vec::new()),
+                service_registry: Mutex::new(HashMap::new()),
                 app_data_dir: app_data_dir.to_string_lossy().to_string(),
             });
 
@@ -129,6 +134,42 @@ pub fn run() {
             commands::get_migration_status,
             commands::register_module_dependency,
             commands::check_dependency_graph,
+            // Phase 40: Module Lifecycle
+            commands::install_module,
+            commands::uninstall_module,
+            commands::enable_module,
+            commands::disable_module,
+            commands::get_module_info,
+            commands::list_installed_modules,
+            // Phase 40: SDK v1
+            sdk_v1::get_sdk_version,
+            sdk_v1::sdk_create_transaction,
+            sdk_v1::sdk_void_transaction,
+            sdk_v1::sdk_get_account_balance,
+            sdk_v1::sdk_get_trial_balance,
+            sdk_v1::sdk_get_journal_entries,
+            sdk_v1::sdk_create_account,
+            sdk_v1::sdk_update_account,
+            sdk_v1::sdk_deactivate_account,
+            sdk_v1::sdk_get_chart_of_accounts,
+            sdk_v1::sdk_create_contact,
+            sdk_v1::sdk_get_contact,
+            sdk_v1::sdk_list_contacts,
+            sdk_v1::sdk_get_contact_ledger,
+            sdk_v1::sdk_attach_document,
+            sdk_v1::sdk_get_documents,
+            sdk_v1::sdk_delete_document,
+            sdk_v1::sdk_get_income_statement,
+            sdk_v1::sdk_get_balance_sheet,
+            sdk_v1::sdk_get_cash_flow,
+            sdk_v1::sdk_storage_create_table,
+            sdk_v1::sdk_storage_insert,
+            sdk_v1::sdk_storage_query,
+            sdk_v1::sdk_storage_update,
+            sdk_v1::sdk_storage_delete,
+            sdk_v1::sdk_register_service,
+            sdk_v1::sdk_call_service,
+            sdk_v1::sdk_list_services,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

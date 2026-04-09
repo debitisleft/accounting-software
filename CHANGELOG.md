@@ -1,13 +1,86 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 39 Complete — Migration Coordinator
+## STATUS: Phase 40 Complete — SDK v1 Core & Module Lifecycle
 
 ## CURRENT STATE (2026-04-09)
-- 39 phases complete, 383 tests passing (1 skipped)
-- Plugin architecture foundation in place: directory format + module ATTACH +
-  versioned migration coordinator with dependency enforcement
+- 40 phases complete, 402 tests passing (1 skipped)
+- Plugin architecture: directory format + module ATTACH + migration coordinator
+  + module_registry + frozen SDK v1 contract + service registry
 
 ## COMPLETED
+
+### Phase 40 — SDK v1 Core & Module Lifecycle (2026-04-09)
+The central nervous system of the plugin architecture: module manifest,
+versioned SDK contract, module registry, install/uninstall/enable/disable
+lifecycle, and the inter-module service registry (Fix #6).
+
+**Schema:** new `module_registry` table in company.sqlite (id, name, version,
+sdk_version, description, author, license, permissions JSON, dependencies JSON,
+entry_point, install_path, status, installed_at, updated_at, error_message).
+The legacy Phase 23 `modules` table is left in place for backwards-compatible
+list_modules calls; new code uses `module_registry`. Recorded as kernel
+migration v9.
+
+**SDK v1 (src-tauri/src/sdk_v1.rs):** brand-new file. Frozen contract — once
+released the signatures must not change. New methods may be ADDED; new
+optional parameters may be ADDED to existing methods. Breaking changes
+require sdk_v2.rs. Method categories:
+- Ledger: sdk_create_transaction, sdk_void_transaction, sdk_get_account_balance,
+  sdk_get_trial_balance, sdk_get_journal_entries
+- Account: sdk_create_account, sdk_update_account, sdk_deactivate_account,
+  sdk_get_chart_of_accounts
+- Contact: sdk_create_contact, sdk_get_contact, sdk_list_contacts,
+  sdk_get_contact_ledger
+- Document: sdk_attach_document, sdk_get_documents, sdk_delete_document
+- Report: sdk_get_income_statement, sdk_get_balance_sheet, sdk_get_cash_flow
+- Storage: sdk_storage_create_table/insert/query/update/delete (delegates to
+  Phase 38 module storage)
+- Service: sdk_register_service, sdk_call_service, sdk_list_services
+- Versioning: get_sdk_version (returns "1")
+
+Every method takes `module_id` as the first parameter. The body simply
+delegates to the existing engine command. Permission checks (Phase 41) will
+slot in at the top of every method without changing signatures.
+
+**Module Lifecycle commands:**
+- install_module(manifest_json, install_path?) — parses + validates manifest,
+  rejects unsupported sdk_version (only "1" today), rejects duplicate ids,
+  rejects ids with non-`[A-Za-z0-9._-]` chars, inserts into module_registry
+  with status='active'.
+- uninstall_module(module_id, keep_data?) — marks 'uninstalling', DETACHes
+  the module DB if attached, optionally deletes the .sqlite (keep_data=true
+  preserves it), clears the service registry for the module, removes from
+  module_registry, deletes related migration_log/pending/dependency rows.
+- enable_module / disable_module — toggles status. Disable also DETACHes the
+  module DB and clears its services so the module is fully inert.
+- get_module_info(module_id) / list_installed_modules() — read-only.
+
+**Service registry (Fix #6):** in-memory `service_registry: Mutex<HashMap<
+(String, String), RegisteredService>>` on DbState. sdk_register_service stores
+a (module_id, service_name) → RegisteredService entry. sdk_call_service is
+brokered through the kernel — modules never communicate directly. The Phase 40
+implementation returns a stub OK response so tests can verify routing; Phase 43
+will replace this with a real iframe postMessage round-trip. Services are
+auto-cleared on disable and uninstall.
+
+**Module ID aliasing:** registry ids may contain dots/dashes (com.example.foo)
+but ATTACH aliases must be `[A-Za-z0-9_]+`. We translate via `module_id.replace
+(['.','-'], '_')` consistently across install/disable/uninstall.
+
+**api.ts + MockApi parity:** all 6 lifecycle commands plus the service-registry
+SDK methods plus get_sdk_version, plus a thin selection of SDK v1 ledger and
+storage wrappers used in tests. The mock simulates a `moduleSqliteFiles` Set so
+keep_data semantics can be verified without real fs.
+
+- 19 new tests in sdk-lifecycle.test.ts: install with valid manifest, sdk_version
+  rejection, duplicate id rejection, invalid id chars rejection, uninstall with
+  and without keep_data, uninstall clears services, disable/enable round-trip,
+  disable clears services, get_sdk_version, SDK ledger forwarding, SDK storage
+  forwarding, service register+call round-trip, call to unregistered service,
+  list_services, list_installed_modules, mixed-state coexistence
+- 402 tests passing (1 skipped); cargo check + npm run check clean
+
+
 
 ### Phase 39 — Migration Coordinator (2026-04-09)
 Per-module versioned migrations with dependency enforcement, checksum-based

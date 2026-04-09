@@ -95,7 +95,7 @@
 
 ---
 
-## PHASE 40 — SDK v1 Core & Module Lifecycle (Fix #1, #6)
+## PHASE 40 — SDK v1 Core & Module Lifecycle (Fix #1, #6) ✅ COMPLETE
 **Goal:** Module manifest, versioned SDK contract, module registry, install/uninstall lifecycle, service registry.
 
 ### Module Manifest (module.json)
@@ -433,8 +433,8 @@
 
 ---
 
-## CURRENT PHASE: 40
-## LAST COMPLETED CHECK: Phase 39 — migration coordinator, 383 tests pass (2026-04-09)
+## CURRENT PHASE: 41
+## LAST COMPLETED CHECK: Phase 40 — SDK v1 core & module lifecycle, 402 tests pass (2026-04-09)
 ## BLOCKING ISSUES: None
 
 ## FUTURE PHASES (not scheduled)

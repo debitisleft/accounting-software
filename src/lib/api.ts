@@ -832,6 +832,92 @@ export const api = {
 
   checkDependencyGraph: () =>
     invoke<string[]>('check_dependency_graph'),
+
+  // Phase 40: Module Lifecycle
+  installModule: (manifest: ModuleManifest, installPath?: string) =>
+    invoke<ModuleRegistryEntry>('install_module', {
+      manifestJson: manifest,
+      installPath: installPath ?? null,
+    }),
+
+  uninstallModule: (moduleId: string, keepData?: boolean) =>
+    invoke<void>('uninstall_module', { moduleId, keepData: keepData ?? false }),
+
+  enableModule: (moduleId: string) => invoke<void>('enable_module', { moduleId }),
+  disableModule: (moduleId: string) => invoke<void>('disable_module', { moduleId }),
+
+  getModuleInfo: (moduleId: string) =>
+    invoke<ModuleRegistryEntry>('get_module_info', { moduleId }),
+
+  listInstalledModules: () =>
+    invoke<ModuleRegistryEntry[]>('list_installed_modules'),
+
+  // Phase 40: SDK v1 (a thin selection — most code calls the SDK from within
+  // module iframes, but the host can use these too)
+  getSdkVersion: () => invoke<string>('get_sdk_version'),
+
+  sdkRegisterService: (moduleId: string, serviceName: string, info: ServiceHandlerInfo) =>
+    invoke<void>('sdk_register_service', { moduleId, serviceName, info }),
+
+  sdkCallService: (
+    callerModuleId: string,
+    targetModuleId: string,
+    serviceName: string,
+    params: unknown,
+  ) =>
+    invoke<unknown>('sdk_call_service', {
+      callerModuleId,
+      targetModuleId,
+      serviceName,
+      params,
+    }),
+
+  sdkListServices: () =>
+    invoke<RegisteredService[]>('sdk_list_services'),
+}
+
+export interface ModuleManifest {
+  id: string
+  name: string
+  version: string
+  sdk_version: string
+  description?: string | null
+  author?: string | null
+  license?: string | null
+  permissions?: string[]
+  dependencies?: unknown[]
+  entry_point?: string | null
+  migrations?: unknown[]
+}
+
+export interface ModuleRegistryEntry {
+  id: string
+  name: string
+  version: string
+  sdk_version: string
+  description: string | null
+  author: string | null
+  license: string | null
+  permissions: string[]
+  dependencies: unknown
+  entry_point: string | null
+  install_path: string | null
+  status: string
+  installed_at: string
+  updated_at: string
+  error_message: string | null
+}
+
+export interface ServiceHandlerInfo {
+  description?: string | null
+  params_schema?: unknown
+  returns_schema?: unknown
+}
+
+export interface RegisteredService {
+  module_id: string
+  service_name: string
+  info: ServiceHandlerInfo
 }
 
 export interface MigrationStatus {
