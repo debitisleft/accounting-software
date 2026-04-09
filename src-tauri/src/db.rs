@@ -358,6 +358,17 @@ fn create_tables(conn: &Connection) -> Result<()> {
             error_message TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS module_health_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id TEXT NOT NULL,
+            event_type TEXT NOT NULL CHECK(event_type IN ('error','recovery','auto_disable','manual_disable','manual_enable','init_failed')),
+            message TEXT,
+            error_count INTEGER NOT NULL DEFAULT 0,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_module_health_log_module ON module_health_log(module_id);
+
         CREATE TABLE IF NOT EXISTS module_permissions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             module_id TEXT NOT NULL REFERENCES module_registry(id) ON DELETE CASCADE,
@@ -476,6 +487,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
             (9, "Add module_registry (Phase 40 SDK v1)"),
             (10, "Add module_permissions (Phase 41 enforcer)"),
             (11, "Add trusted column to module_registry (Phase 43 UI isolation)"),
+            (12, "Add module_health_log (Phase 44 health monitor)"),
         ];
         for (version, description) in kernel_migrations {
             conn.execute(
@@ -497,6 +509,9 @@ fn seed_default_settings(conn: &Connection, company_name: &str) -> Result<()> {
             ("fiscal_year_start_month", "1"),
             ("currency_symbol", "$"),
             ("date_format", "YYYY-MM-DD"),
+            // Phase 44: Health monitor thresholds (configurable per company)
+            ("module_error_threshold", "10"),
+            ("module_error_window_minutes", "5"),
         ];
         for (key, value) in defaults {
             conn.execute("INSERT INTO settings (key, value) VALUES (?1, ?2)", params![key, value])?;

@@ -9,6 +9,7 @@ mod permissions;
 mod hooks;
 mod events;
 mod ui_extensions;
+mod health;
 
 pub struct DbState {
     pub conn: Mutex<Option<rusqlite::Connection>>,
@@ -23,6 +24,8 @@ pub struct DbState {
     /// Phase 43: in-memory UI extension registry (nav items, settings panes,
     /// transaction actions). Modules re-register on init.
     pub ui_extensions: ui_extensions::UiExtensionRegistry,
+    /// Phase 44: per-module health monitor (in-memory error counters).
+    pub health_monitor: health::HealthMonitor,
     pub app_data_dir: String,
 }
 
@@ -54,6 +57,7 @@ pub fn run() {
                 hook_registry: hooks::new_registry(),
                 event_bus: events::new_bus(),
                 ui_extensions: ui_extensions::new_registry(),
+                health_monitor: health::new_monitor(),
                 app_data_dir: app_data_dir.to_string_lossy().to_string(),
             });
 
@@ -204,6 +208,10 @@ pub fn run() {
             ui_extensions::get_settings_panes,
             ui_extensions::get_transaction_actions,
             ui_extensions::get_module_file,
+            // Phase 44: Health Monitor
+            health::get_health_status,
+            health::get_all_health_statuses,
+            health::get_health_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

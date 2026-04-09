@@ -940,6 +940,34 @@ export const api = {
       moduleId,
       filePath,
     }),
+
+  // Phase 44: Health Monitor
+  getHealthStatus: (moduleId: string) =>
+    invoke<ModuleHealth>('get_health_status', { moduleId }),
+
+  getAllHealthStatuses: () =>
+    invoke<ModuleHealth[]>('get_all_health_statuses'),
+
+  getHealthHistory: (moduleId: string, limit?: number) =>
+    invoke<HealthLogEntry[]>('get_health_history', { moduleId, limit: limit ?? null }),
+}
+
+export interface ModuleHealth {
+  module_id: string
+  status: 'HEALTHY' | 'DEGRADED' | 'FAILED' | 'DISABLED'
+  error_count: number
+  last_error: string | null
+  last_success_at: number | null
+  window_start: number | null
+}
+
+export interface HealthLogEntry {
+  id: number
+  module_id: string
+  event_type: 'error' | 'recovery' | 'auto_disable' | 'manual_disable' | 'manual_enable' | 'init_failed'
+  message: string | null
+  error_count: number
+  timestamp: string
 }
 
 export interface NavItemExtension {

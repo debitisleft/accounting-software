@@ -1,14 +1,83 @@
 # Bookkeeping App — Changelog
 
-## STATUS: Phase 43 Complete — UI Isolation & Module Frame
+## STATUS: Phase 44 Complete — Health Monitor & Error Boundaries
 
 ## CURRENT STATE (2026-04-09)
-- 43 phases complete, 447 tests passing (1 skipped)
+- 44 phases complete, 462 tests passing (1 skipped)
 - Plugin architecture: directory format + ATTACH + migration coordinator +
   module_registry + frozen SDK v1 + service registry + permissions enforcer
-  + sync hooks + async events + sandboxed iframe UI + UI extension registry
+  + sync hooks + async events + sandboxed iframe UI + UI extensions +
+  per-module health monitor with auto-disable
 
 ## COMPLETED
+
+### Phase 44 — Health Monitor & Error Boundaries (2026-04-09)
+Per-module error counters with a sliding time window. When a module exceeds
+the configured error threshold within the window, it's auto-disabled: detached,
+hooks/events/UI/services stripped, registry status set to FAILED. The app
+ALWAYS boots — module failures never take down core bookkeeping. Fix #8.
+
+**Schema:** new `module_health_log` table — id, module_id, event_type
+('error' | 'recovery' | 'auto_disable' | 'manual_disable' | 'manual_enable' |
+'init_failed'), message, error_count, timestamp. Two new default settings
+seeded on file create: `module_error_threshold` (10) and
+`module_error_window_minutes` (5). Recorded as kernel migration v12.
+
+**Health states:**
+- HEALTHY — all calls succeeding
+- DEGRADED — at least one error in the current window, below threshold
+- FAILED — auto-disabled or init-failed
+- DISABLED — user-disabled
+
+**src-tauri/src/health.rs (NEW):** in-memory `HealthMonitor` on DbState
+keyed by module_id. Each entry tracks status, error_count, last_error,
+last_success_at, window_start.
+- `record_error(db, module_id, message)` — increments count in current
+  window, resets if window expired (now - window_start >= window_secs),
+  marks DEGRADED. If new count > threshold, marks FAILED, writes
+  auto_disable log entry, calls `tear_down_module()`.
+- `record_success(db, module_id)` — updates last_success_at; if status was
+  DEGRADED, resets to HEALTHY. Never unfails a FAILED module — re-enable
+  requires explicit `enable_module`.
+- `tear_down_module()` — DETACHes the .sqlite (with sanitized alias),
+  unregisters services + hooks + events + UI extensions, UPDATEs
+  module_registry status='failed' with error_message.
+- `record_init_failure(db, module_id, error)` — install/lifecycle path for
+  modules that throw during init. Marks FAILED without calling tear_down
+  (nothing was registered yet).
+- 3 query commands: `get_health_status(module_id)`,
+  `get_all_health_statuses()`, `get_health_history(module_id, limit?)`.
+
+Threshold + window are read live from settings on every `record_error` so
+the user can change them without restarting. Defaults are baked in
+(10 errors / 5 minutes) for the early-startup case.
+
+**MockApi parity:** full state machine. `recordError` / `recordSuccess` /
+`recordInitFailure`, plus the 3 query commands. `tearDownModule()` mirrors
+the Rust implementation. The mock exposes a `healthClock: () => number`
+override so window-expiry tests can advance time without sleeping.
+Threshold + window read from `this.settings` so the same configurability
+test pattern works in both runtimes.
+
+**api.ts wrappers:** `getHealthStatus`, `getAllHealthStatuses`,
+`getHealthHistory`. New `ModuleHealth` and `HealthLogEntry` interfaces.
+
+- 15 new tests in health-monitor.test.ts: error increments + DEGRADED,
+  11-error auto-disable to FAILED, errors in different windows don't
+  accumulate, auto-disabled module's hooks unregistered, events unsubscribed,
+  UI extensions hidden, kernel detach, registry status updated, recordSuccess
+  resets DEGRADED but not FAILED, init failure path, history newest-first,
+  all-statuses listing, manual disable + enable, configurable threshold
+- 462 tests passing (1 skipped); cargo check + npm run check clean
+
+**Deferred:** Wiring `record_error` / `record_success` into the actual
+Rust SDK call sites (every sdk_v1 method's try/catch wrapper) and the
+ModuleErrorBoundary React component + ModuleHealthPage admin UI.
+The kernel-side state machine is fully in place; the integration into
+the SDK call path will land when Phase 46 builds the first real module
+that exercises it end to end.
+
+
 
 ### Phase 43 — UI Isolation & Module Frame (2026-04-09)
 Sandboxed iframe for module UI with zero DOM access to the host. Communication

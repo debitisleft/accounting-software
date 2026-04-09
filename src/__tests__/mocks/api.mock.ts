@@ -176,6 +176,29 @@ export class MockApi {
   settingsPanes: { module_id: string; label: string; route: string }[] = []
   transactionActions: { module_id: string; label: string; action_id: string }[] = []
   moduleFileSystem: Map<string, Record<string, string>> = new Map() // module_id -> {file_path: contents}
+  // Phase 44: Health monitor
+  healthMonitor: Map<
+    string,
+    {
+      module_id: string
+      status: 'HEALTHY' | 'DEGRADED' | 'FAILED' | 'DISABLED'
+      error_count: number
+      last_error: string | null
+      last_success_at: number | null
+      window_start: number | null
+    }
+  > = new Map()
+  healthLog: {
+    id: number
+    module_id: string
+    event_type: 'error' | 'recovery' | 'auto_disable' | 'manual_disable' | 'manual_enable' | 'init_failed'
+    message: string | null
+    error_count: number
+    timestamp: string
+  }[] = []
+  private healthLogSeq = 1
+  /// Override clock for tests that need to simulate window expiry.
+  healthClock: () => number = () => Math.floor(Date.now() / 1000)
   private moduleRowSeq = 1
   private nextId = 1
   private auditSeq = 0
@@ -279,6 +302,8 @@ export class MockApi {
     this.settingsPanes = []
     this.transactionActions = []
     this.moduleFileSystem = new Map()
+    this.healthMonitor = new Map()
+    this.healthLog = []
     // Retroactively record kernel migrations (matches Rust db.rs run_migrations)
     const kernelMigrations: [number, string][] = [
       [1, 'Initial kernel schema (accounts, transactions, journal_entries, settings)'],
@@ -3652,6 +3677,147 @@ export class MockApi {
       mime !== 'application/json' &&
       mime !== 'image/svg+xml'
     return { mime_type: mime, content, is_binary: isBinary }
+  }
+
+  // ── Phase 44: Health Monitor ────────────────────────────
+
+  private getHealthOrInit(moduleId: string): NonNullable<ReturnType<typeof this.healthMonitor.get>> {
+    let entry = this.healthMonitor.get(moduleId)
+    if (!entry) {
+      entry = {
+        module_id: moduleId,
+        status: 'HEALTHY',
+        error_count: 0,
+        last_error: null,
+        last_success_at: null,
+        window_start: null,
+      }
+      this.healthMonitor.set(moduleId, entry)
+    }
+    return entry
+  }
+
+  private writeHealthLog(
+    moduleId: string,
+    eventType: 'error' | 'recovery' | 'auto_disable' | 'manual_disable' | 'manual_enable' | 'init_failed',
+    message: string | null,
+    errorCount: number,
+  ): void {
+    this.healthLog.push({
+      id: this.healthLogSeq++,
+      module_id: moduleId,
+      event_type: eventType,
+      message,
+      error_count: errorCount,
+      timestamp: new Date().toISOString(),
+    })
+  }
+
+  /// Tear down a module after auto-disable: clear hooks, events, services,
+  /// UI extensions, detach DB. Mirrors health.rs::tear_down_module.
+  private tearDownModule(moduleId: string): void {
+    const alias = this.moduleAlias(moduleId)
+    this.attachedModules = this.attachedModules.filter((m) => m !== alias)
+    this.serviceRegistry = this.serviceRegistry.filter((s) => s.module_id !== moduleId)
+    for (const list of this.hookHandlers.values()) {
+      const filtered = list.filter((h) => h.module_id !== moduleId)
+      list.length = 0
+      list.push(...filtered)
+    }
+    for (const list of this.eventSubscribers.values()) {
+      const filtered = list.filter((s) => s.module_id !== moduleId)
+      list.length = 0
+      list.push(...filtered)
+    }
+    this.navItems = this.navItems.filter((n) => n.module_id !== moduleId)
+    this.settingsPanes = this.settingsPanes.filter((s) => s.module_id !== moduleId)
+    this.transactionActions = this.transactionActions.filter((a) => a.module_id !== moduleId)
+    const reg = this.moduleRegistry.find((m) => m.id === moduleId)
+    if (reg) {
+      reg.status = 'failed'
+      reg.error_message = 'auto-disabled: error threshold exceeded'
+      reg.updated_at = new Date().toISOString()
+    }
+  }
+
+  /// Record an error for a module. Increments the in-window count and
+  /// triggers auto-disable if it exceeds the threshold from settings.
+  /// Returns true iff this call caused an auto-disable.
+  recordError(moduleId: string, message: string): boolean {
+    const threshold = parseInt(this.settings.module_error_threshold ?? '10', 10)
+    const windowMin = parseInt(this.settings.module_error_window_minutes ?? '5', 10)
+    const windowSecs = windowMin * 60
+    const now = this.healthClock()
+
+    const entry = this.getHealthOrInit(moduleId)
+    const inWindow = entry.window_start !== null && now - entry.window_start < windowSecs
+    if (!inWindow) {
+      entry.window_start = now
+      entry.error_count = 0
+    }
+    entry.error_count += 1
+    entry.last_error = message
+    if (entry.status === 'HEALTHY') entry.status = 'DEGRADED'
+
+    this.writeHealthLog(moduleId, 'error', message, entry.error_count)
+
+    if (entry.error_count > threshold) {
+      entry.status = 'FAILED'
+      this.writeHealthLog(
+        moduleId,
+        'auto_disable',
+        `exceeded ${threshold} errors in ${windowMin} minutes`,
+        entry.error_count,
+      )
+      this.tearDownModule(moduleId)
+      return true
+    }
+    return false
+  }
+
+  /// Record a successful SDK call. Resets DEGRADED → HEALTHY but never
+  /// touches FAILED (re-enable requires explicit enable_module).
+  recordSuccess(moduleId: string): void {
+    const entry = this.getHealthOrInit(moduleId)
+    entry.last_success_at = this.healthClock()
+    if (entry.status === 'DEGRADED') {
+      entry.status = 'HEALTHY'
+      entry.error_count = 0
+      entry.window_start = null
+    }
+  }
+
+  recordInitFailure(moduleId: string, error: string): void {
+    this.writeHealthLog(moduleId, 'init_failed', error, 0)
+    const entry = this.getHealthOrInit(moduleId)
+    entry.status = 'FAILED'
+    entry.last_error = error
+    const reg = this.moduleRegistry.find((m) => m.id === moduleId)
+    if (reg) {
+      reg.status = 'failed'
+      reg.error_message = error
+      reg.updated_at = new Date().toISOString()
+    }
+  }
+
+  getHealthStatus(moduleId: string): NonNullable<ReturnType<typeof this.healthMonitor.get>> {
+    const entry = this.healthMonitor.get(moduleId)
+    if (!entry) throw new Error(`No health record for module: ${moduleId}`)
+    return entry
+  }
+
+  getAllHealthStatuses(): NonNullable<ReturnType<typeof this.healthMonitor.get>>[] {
+    return Array.from(this.healthMonitor.values()).sort((a, b) =>
+      a.module_id.localeCompare(b.module_id),
+    )
+  }
+
+  getHealthHistory(moduleId: string, limit = 100): typeof this.healthLog {
+    return this.healthLog
+      .filter((l) => l.module_id === moduleId)
+      .slice()
+      .reverse()
+      .slice(0, limit)
   }
 }
 
